@@ -117,7 +117,7 @@ export default function PrivacyPolicy() {
               <h2 className="text-xl font-semibold text-gray-900 mb-1">10. Contact Us</h2>
               <p>For privacy-related questions or requests:</p>
               <p className="mt-2"><strong>Email:</strong> <a href="mailto:privacy@pollmenow.com" className="text-primary hover:underline">privacy@pollmenow.com</a></p>
-              <p><strong>Postal:</strong> PollMeNow, 548 Market St, PMB 12345, San Francisco, CA 94104, USA</p>
+              
             </div>
           </div>
         </section>

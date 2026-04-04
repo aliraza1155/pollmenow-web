@@ -101,7 +101,7 @@ export default function ContactPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900 mb-1">Office (remote-first)</h3>
-                <p className="text-sm text-gray-500">548 Market St, PMB 12345<br />San Francisco, CA 94104<br />USA</p>
+                
                 <p className="text-xs text-gray-400 mt-2">No walk-in support – please email us first.</p>
               </div>
             </div>

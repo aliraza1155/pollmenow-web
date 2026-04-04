@@ -97,7 +97,7 @@ export default function TermsOfService() {
               <h2 className="text-xl font-semibold text-gray-900 mb-1">11. Contact Information</h2>
               <p>For legal notices or questions about these Terms:</p>
               <p className="mt-2"><strong>Email:</strong> <a href="mailto:legal@pollmenow.com" className="text-primary hover:underline">legal@pollmenow.com</a></p>
-              <p><strong>Postal:</strong> PollMeNow, 548 Market St, PMB 12345, San Francisco, CA 94104, USA</p>
+              
             </div>
           </div>
         </section>
