@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import HomePage from './pages/HomePage'
+import PollWidget from './pages/PollWidget'          // ADDED
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
 import ContactPage from './pages/ContactPage'
@@ -27,6 +28,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<PageWrapper><HomePage /></PageWrapper>} />
+            <Route path="/poll/:id" element={<PageWrapper><PollWidget /></PageWrapper>} />   {/* ADDED */}
             <Route path="/privacy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
             <Route path="/terms" element={<PageWrapper><TermsOfService /></PageWrapper>} />
             <Route path="/contact" element={<PageWrapper><ContactPage /></PageWrapper>} />
