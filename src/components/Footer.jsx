@@ -1,11 +1,15 @@
-import { Link } from 'react-router-dom'
-import { Mail, BarChart3 } from 'lucide-react'
+// src/components/Footer.jsx
+import { Link } from 'react-router-dom';
+import { Mail, BarChart3 } from 'lucide-react';
 
 export default function Footer() {
+  const currentYear = new Date().getFullYear();
+
   return (
     <footer className="bg-gray-950 text-gray-400 py-14 px-6">
       <div className="max-w-6xl mx-auto">
         <div className="grid md:grid-cols-4 gap-10 mb-10">
+          {/* Brand column */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
@@ -18,15 +22,19 @@ export default function Footer() {
             </p>
           </div>
 
+          {/* Product column */}
           <div>
             <h4 className="text-white text-sm font-semibold mb-4">Product</h4>
             <ul className="space-y-2.5 text-sm">
               <li><a href="#features" className="hover:text-primary transition-colors">Features</a></li>
               <li><a href="#pricing" className="hover:text-primary transition-colors">Pricing</a></li>
+              <li><Link to="/explore" className="hover:text-primary transition-colors">Explore polls</Link></li>
+              <li><Link to="/search" className="hover:text-primary transition-colors">Search</Link></li>
               <li><Link to="/contact" className="hover:text-primary transition-colors">Contact</Link></li>
             </ul>
           </div>
 
+          {/* Legal column */}
           <div>
             <h4 className="text-white text-sm font-semibold mb-4">Legal</h4>
             <ul className="space-y-2.5 text-sm">
@@ -35,6 +43,7 @@ export default function Footer() {
             </ul>
           </div>
 
+          {/* Support column */}
           <div>
             <h4 className="text-white text-sm font-semibold mb-4">Support</h4>
             <a href="mailto:support@pollmenow.com" className="flex items-center gap-2 text-sm hover:text-primary transition-colors">
@@ -45,11 +54,15 @@ export default function Footer() {
           </div>
         </div>
 
+        {/* Bottom bar */}
         <div className="border-t border-white/5 pt-7 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-gray-600">
-          <span>© 2026 PollMeNow. All rights reserved.</span>
-          <span>Stripe-verified business</span>
+          <span>© {currentYear} PollMeNow. All rights reserved.</span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+            Stripe-verified business
+          </span>
         </div>
       </div>
     </footer>
-  )
+  );
 }

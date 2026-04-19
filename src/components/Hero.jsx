@@ -1,16 +1,22 @@
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Zap, Brain, Users, Clock, ArrowRight, TrendingUp, BarChart3, Shield, Globe } from 'lucide-react'
+// src/components/Hero.jsx
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { Zap, Brain, Users, Clock, ArrowRight, TrendingUp, BarChart3, Shield, Globe } from 'lucide-react';
 
 export default function Hero() {
-  const [voteCount, setVoteCount] = useState(2841)
+  const [voteCount, setVoteCount] = useState(2841);
 
   useEffect(() => {
-    const t = setInterval(() => {
-      setVoteCount(p => p + Math.floor(Math.random() * 4) + 1)
-    }, 2800)
-    return () => clearInterval(t)
-  }, [])
+    const interval = setInterval(() => {
+      setVoteCount(prev => prev + Math.floor(Math.random() * 4) + 1);
+    }, 2800);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleDemoClick = () => {
+    alert('Demo video coming soon! Check back later.');
+  };
 
   return (
     <section className="relative overflow-hidden bg-white">
@@ -20,7 +26,7 @@ export default function Hero() {
       <div className="max-w-6xl mx-auto px-6 py-20 md:py-28 relative z-10">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
 
-          {/* LEFT COLUMN - KEEP YOUR ORIGINAL STYLES */}
+          {/* LEFT COLUMN */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
@@ -60,7 +66,7 @@ export default function Hero() {
               and shows results in real time — all in under 10 seconds.
             </motion.p>
 
-            {/* Live poll preview with counter */}
+            {/* Live poll preview */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -107,29 +113,27 @@ export default function Hero() {
               </div>
             </motion.div>
 
-            {/* CTA buttons */}
+            {/* CTA Buttons */}
             <motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.55 }}
               className="flex flex-wrap gap-3"
             >
-              <motion.button
-                whileHover={{ scale: 1.02, y: -1 }}
-                whileTap={{ scale: 0.97 }}
-                className="flex items-center gap-2 bg-gradient-to-r from-primary to-secondary text-white px-6 py-3 rounded-xl text-sm font-semibold shadow-lg shadow-primary/20"
+              <Link
+                to="/create"
+                className="flex items-center gap-2 bg-gradient-to-r from-primary to-secondary text-white px-6 py-3 rounded-xl text-sm font-semibold shadow-lg shadow-primary/20 hover:shadow-xl transition-all"
               >
                 <Brain className="w-4 h-4" />
                 Create poll with AI
                 <ArrowRight className="w-3.5 h-3.5" />
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02, y: -1 }}
-                whileTap={{ scale: 0.97 }}
-                className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-6 py-3 rounded-xl text-sm font-semibold hover:bg-gray-50"
+              </Link>
+              <button
+                onClick={handleDemoClick}
+                className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 px-6 py-3 rounded-xl text-sm font-semibold hover:bg-gray-50 transition"
               >
                 Watch demo
-              </motion.button>
+              </button>
             </motion.div>
 
             <motion.div
@@ -147,7 +151,7 @@ export default function Hero() {
             </motion.div>
           </motion.div>
 
-          {/* RIGHT COLUMN - ENHANCED DASHBOARD with AI options */}
+          {/* RIGHT COLUMN – DASHBOARD PREVIEW */}
           <motion.div
             initial={{ opacity: 0, scale: 0.92, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -191,7 +195,7 @@ export default function Hero() {
                 </p>
               </div>
 
-              {/* Options with better styling */}
+              {/* Options with styling */}
               <div className="space-y-2.5 mb-5">
                 {[
                   { label: 'AI Automation', pct: 44, color: 'text-emerald-400', barColor: 'bg-emerald-400' },
@@ -213,7 +217,7 @@ export default function Hero() {
                 ))}
               </div>
 
-              {/* Additional insights row */}
+              {/* Additional insights */}
               <div className="grid grid-cols-3 gap-2 pt-4 border-t border-white/10 text-center">
                 <div>
                   <div className="text-lg font-bold text-emerald-400">432</div>
@@ -229,16 +233,15 @@ export default function Hero() {
                 </div>
               </div>
 
-              {/* AI badge at bottom */}
+              {/* AI badge */}
               <div className="mt-4 flex items-center justify-center gap-1.5 bg-primary/10 rounded-full px-3 py-1 w-fit mx-auto">
                 <Brain className="w-3 h-3 text-primary" />
                 <span className="text-[10px] text-primary/80 font-medium">Powered by PollMeNow AI</span>
               </div>
             </div>
           </motion.div>
-
         </div>
       </div>
     </section>
-  )
+  );
 }
