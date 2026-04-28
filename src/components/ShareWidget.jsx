@@ -1,10 +1,7 @@
 // src/components/ShareWidget.jsx
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Twitter, Facebook, Linkedin, Mail, Copy, Check, Share2,
-  Link as LinkIcon, MessageCircle, QrCode, X
-} from 'lucide-react';
+import { Copy, Check, Share2, Link as LinkIcon, MessageCircle, QrCode, X, Mail } from 'lucide-react';
 
 export default function ShareWidget({ poll, onShare, creator }) {
   const [copied, setCopied] = useState(false);
@@ -25,9 +22,8 @@ export default function ShareWidget({ poll, onShare, creator }) {
   };
 
   const shareLinks = [
-    { name: 'Twitter', icon: Twitter, href: `https://twitter.com/intent/tweet?text=${encodedMessage}&url=${encodedUrl}`, color: 'bg-[#1DA1F2] hover:bg-[#1a8cd8]' },
-    { name: 'Facebook', icon: Facebook, href: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`, color: 'bg-[#1877F2] hover:bg-[#1664d9]' },
-    { name: 'LinkedIn', icon: Linkedin, href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`, color: 'bg-[#0A66C2] hover:bg-[#0956a8]' },
+    { name: 'Twitter', href: `https://twitter.com/intent/tweet?text=${encodedMessage}&url=${encodedUrl}`, color: 'bg-[#1DA1F2] hover:bg-[#1a8cd8]', label: '𝕏' },
+    { name: 'LinkedIn', href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`, color: 'bg-[#0A66C2] hover:bg-[#0956a8]', label: 'in' },
     { name: 'WhatsApp', icon: MessageCircle, href: `https://wa.me/?text=${encodedMessage}`, color: 'bg-[#25D366] hover:bg-[#20b858]' },
     { name: 'Email', icon: Mail, href: `mailto:?subject=${encodeURIComponent(poll.question)}&body=${encodedMessage}`, color: 'bg-gray-600 hover:bg-gray-700' },
   ];
@@ -118,7 +114,6 @@ export default function ShareWidget({ poll, onShare, creator }) {
 
         {/* Share buttons */}
         <div className="space-y-3">
-          {/* Primary actions */}
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={copyToClipboard}
@@ -136,7 +131,7 @@ export default function ShareWidget({ poll, onShare, creator }) {
             </button>
           </div>
 
-          {/* Social media icons */}
+          {/* Social media icons - using text for Twitter/LinkedIn */}
           <div className="flex justify-center gap-2 pt-2 border-t border-gray-100">
             {shareLinks.map((social) => (
               <a
@@ -144,10 +139,10 @@ export default function ShareWidget({ poll, onShare, creator }) {
                 href={social.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105 ${social.color} text-white shadow-sm`}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105 ${social.color} text-white shadow-sm font-bold`}
                 aria-label={`Share on ${social.name}`}
               >
-                <social.icon size={16} />
+                {social.icon ? <social.icon size={16} /> : social.label}
               </a>
             ))}
             <button

@@ -1,66 +1,173 @@
 // src/components/Footer.jsx
 import { Link } from 'react-router-dom';
-import { Mail, BarChart3 } from 'lucide-react';
+import { Mail, BarChart3, Heart, Shield, HelpCircle, Sparkles, Code } from 'lucide-react';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
 
+  const footerLinks = {
+    product: [
+      { label: 'Features', href: '#features', isRoute: false },
+      { label: 'AI Spotlight', href: '#ai', isRoute: false },
+      { label: 'Pricing', href: '#pricing', isRoute: false },
+      { label: 'Explore polls', href: '/explore', isRoute: true },
+      { label: 'Search', href: '/search', isRoute: true },
+      { label: 'Create poll', href: '/create', isRoute: true },
+    ],
+    company: [
+      { label: 'About us', href: '/about', isRoute: true },
+      { label: 'Contact', href: '/contact', isRoute: true },
+      { label: 'Blog', href: '/blog', isRoute: true },
+      { label: 'Affiliates', href: '/affiliates', isRoute: true },
+    ],
+    support: [
+      { label: 'Help center', href: '/help', isRoute: true },
+      { label: 'FAQ', href: '/faq', isRoute: true },
+      { label: 'Status', href: '/status', isRoute: true },
+      { label: 'Report abuse', href: '/report', isRoute: true },
+    ],
+    legal: [
+      { label: 'Privacy policy', href: '/privacy', isRoute: true },
+      { label: 'Terms of service', href: '/terms', isRoute: true },
+      { label: 'Cookie policy', href: '/cookies', isRoute: true },
+      { label: 'GDPR compliance', href: '/gdpr', isRoute: true },
+    ],
+  };
+
   return (
-    <footer className="bg-gray-950 text-gray-400 py-14 px-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="grid md:grid-cols-4 gap-10 mb-10">
+    <footer className="bg-gray-950 text-gray-400 pt-12 pb-6 px-4 sm:px-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 mb-10">
           {/* Brand column */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
-                <BarChart3 className="w-3.5 h-3.5 text-white" />
+              <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center shadow-sm">
+                <BarChart3 className="w-4 h-4 text-white" />
               </div>
-              <span className="text-white font-bold text-lg">PollMeNow</span>
+              <span className="text-white font-bold text-xl">PollMeNow</span>
             </div>
-            <p className="text-sm leading-relaxed max-w-[200px]">
-              AI-powered real-time polling. Capture opinions instantly.
+            <p className="text-sm leading-relaxed text-gray-400 max-w-[220px]">
+              AI-powered real-time polling. Capture opinions instantly, engage your audience, and make data-driven decisions.
             </p>
+            <div className="flex gap-3 pt-2">
+              <a href="mailto:support@pollmenow.com" className="text-gray-500 hover:text-primary transition" aria-label="Email">
+                <Mail size={18} />
+              </a>
+              <a href="https://github.com/pollmenow" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-primary transition" aria-label="GitHub">
+                <Code size={18} />
+              </a>
+            </div>
           </div>
 
-          {/* Product column */}
+          {/* Product */}
           <div>
-            <h4 className="text-white text-sm font-semibold mb-4">Product</h4>
-            <ul className="space-y-2.5 text-sm">
-              <li><a href="#features" className="hover:text-primary transition-colors">Features</a></li>
-              <li><a href="#pricing" className="hover:text-primary transition-colors">Pricing</a></li>
-              <li><Link to="/explore" className="hover:text-primary transition-colors">Explore polls</Link></li>
-              <li><Link to="/search" className="hover:text-primary transition-colors">Search</Link></li>
-              <li><Link to="/contact" className="hover:text-primary transition-colors">Contact</Link></li>
+            <h4 className="text-white text-sm font-semibold mb-4 flex items-center gap-1.5">
+              <Sparkles size={14} /> Product
+            </h4>
+            <ul className="space-y-2 text-sm">
+              {footerLinks.product.map((link) => (
+                <li key={link.label}>
+                  {link.isRoute ? (
+                    <Link to={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </Link>
+                  ) : (
+                    <a href={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </a>
+                  )}
+                </li>
+              ))}
             </ul>
           </div>
 
-          {/* Legal column */}
+          {/* Company */}
           <div>
-            <h4 className="text-white text-sm font-semibold mb-4">Legal</h4>
-            <ul className="space-y-2.5 text-sm">
-              <li><Link to="/privacy" className="hover:text-primary transition-colors">Privacy policy</Link></li>
-              <li><Link to="/terms" className="hover:text-primary transition-colors">Terms of service</Link></li>
+            <h4 className="text-white text-sm font-semibold mb-4 flex items-center gap-1.5">
+              <Heart size={14} /> Company
+            </h4>
+            <ul className="space-y-2 text-sm">
+              {footerLinks.company.map((link) => (
+                <li key={link.label}>
+                  {link.isRoute ? (
+                    <Link to={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </Link>
+                  ) : (
+                    <a href={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </a>
+                  )}
+                </li>
+              ))}
             </ul>
           </div>
 
-          {/* Support column */}
+          {/* Support */}
           <div>
-            <h4 className="text-white text-sm font-semibold mb-4">Support</h4>
-            <a href="mailto:support@pollmenow.com" className="flex items-center gap-2 text-sm hover:text-primary transition-colors">
-              <Mail className="w-4 h-4" />
-              support@pollmenow.com
-            </a>
-            <p className="text-xs text-gray-600 mt-2">Response within 24 hours</p>
+            <h4 className="text-white text-sm font-semibold mb-4 flex items-center gap-1.5">
+              <HelpCircle size={14} /> Support
+            </h4>
+            <ul className="space-y-2 text-sm">
+              {footerLinks.support.map((link) => (
+                <li key={link.label}>
+                  {link.isRoute ? (
+                    <Link to={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </Link>
+                  ) : (
+                    <a href={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </a>
+                  )}
+                </li>
+              ))}
+              <li className="pt-2">
+                <a href="mailto:support@pollmenow.com" className="flex items-center gap-2 text-sm hover:text-primary transition-colors">
+                  <Mail size={14} />
+                  support@pollmenow.com
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h4 className="text-white text-sm font-semibold mb-4 flex items-center gap-1.5">
+              <Shield size={14} /> Legal
+            </h4>
+            <ul className="space-y-2 text-sm">
+              {footerLinks.legal.map((link) => (
+                <li key={link.label}>
+                  {link.isRoute ? (
+                    <Link to={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </Link>
+                  ) : (
+                    <a href={link.href} className="hover:text-primary transition-colors">
+                      {link.label}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 pt-3 border-t border-gray-800">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                Stripe-verified business
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Bottom bar */}
-        <div className="border-t border-white/5 pt-7 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-gray-600">
-          <span>© {currentYear} PollMeNow. All rights reserved.</span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
-            Stripe-verified business
-          </span>
+        <div className="border-t border-gray-800 pt-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-gray-500">
+          <span>© {currentYear} PollMeNow, Inc. All rights reserved.</span>
+          <div className="flex gap-4">
+            <Link to="/privacy" className="hover:text-primary transition">Privacy</Link>
+            <Link to="/terms" className="hover:text-primary transition">Terms</Link>
+            <Link to="/cookies" className="hover:text-primary transition">Cookies</Link>
+          </div>
         </div>
       </div>
     </footer>
