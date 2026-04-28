@@ -1,118 +1,212 @@
-// src/lib/ai.js
-// ⚠️ TEMPORARY: Hardcoded API keys for LOCAL DEVELOPMENT only.
-// Before deploying to production, replace this file with the cloud function version.
-// Never commit real API keys to version control.
+// src/lib/ai.js – calls Firebase Cloud Functions (Vertex AI + OpenAI)
+import { httpsCallable } from 'firebase/functions';
+import { functions } from './firebase';
 
-// ===== Replace these with your actual API keys =====
-const GEMINI_API_KEY = 'AIzaSyBd2qKpt0jdWgil-Tl1c4zuPdV9Qe6G_so'; // Your Gemini key
-const OPENAI_API_KEY = 'sk-proj-...'; // Your OpenAI key
-// ===================================================
+// Callable function references
+const generatePollCall = httpsCallable(functions, 'generatePollWithAI');
+const rephraseContentCall = httpsCallable(functions, 'rephraseContent');
+const generateImageCall = httpsCallable(functions, 'generateImage');
+const generateOptionImagesCall = httpsCallable(functions, 'generateOptionImages');
+const generatePollFromURLCall = httpsCallable(functions, 'generatePollFromURL');
+const generatePollInsightsCall = httpsCallable(functions, 'generatePollInsights');
+const generateAndUploadImageCall = httpsCallable(functions, 'generateAndUploadImage');
+const getDetailedPromptCall = httpsCallable(functions, 'getDetailedPrompt');   // NEW
 
-export async function rephraseContent(text, context) {
+/**
+ * Generate poll suggestions (question + options) using Vertex AI.
+ * @param {string} topic – The topic for the poll.
+ * @param {number} numOptions – Number of options (2-6).
+ * @param {string} pollType – 'quick', 'yesno', 'rating', 'comparison', 'live', 'rating_multiple'.
+ * @param {string} action – 'generate', 'addOption', 'rephrase', 'complete'.
+ * @param {string[]} existingOptions – Existing options (for 'addOption', 'rephrase', 'complete').
+ * @returns {Promise<{question: string, options?: string[], scale?: {min: number, max: number, step: number}}>}
+ */
+export async function generatePollSuggestions(topic, numOptions = 4, pollType = 'quick', action = 'generate', existingOptions = []) {
+  console.log('[Frontend] generatePollSuggestions called:', { topic, numOptions, pollType, action });
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: `Rephrase this ${context} to be more engaging, clear, and neutral. Return only the improved version:\n\nOriginal: "${text}"\n\nImproved:` }]
-          }]
-        })
-      }
-    );
-    const data = await response.json();
-    const improved = data.candidates?.[0]?.content?.parts?.[0]?.text || text;
-    return { improvedText: improved.trim() };
-  } catch (err) {
-    console.error('Rephrase error:', err);
-    return { improvedText: text };
-  }
-}
-
-export async function generatePollSuggestions(topic) {
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Generate a poll about "${topic}". Provide:
-              1. One engaging question (max 120 characters)
-              2. 4 concise options (max 50 characters each)
-              Format your response as JSON: {question: "question text", options: ["option1", "option2", "option3", "option4"]}`
-            }]
-          }]
-        })
-      }
-    );
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    throw new Error('Invalid response');
-  } catch (err) {
-    console.error('Poll generation error:', err);
-    return { question: `What do you think about ${topic}?`, options: ['Love it', 'It\'s okay', 'Not a fan', 'No opinion'] };
-  }
-}
-
-export async function rewritePromptForDalle(prompt) {
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Rewrite the following user prompt to be completely safe for DALL‑E image generation.
-              Keep the core meaning and subject but remove any violent, hateful, or policy‑violating terms.
-              Make the description neutral, descriptive, and visually evocative.
-              Return only the rewritten prompt.
-
-              Original: "${prompt}"`
-            }]
-          }]
-        })
-      }
-    );
-    const data = await response.json();
-    const rewritten = data.candidates?.[0]?.content?.parts?.[0]?.text || prompt;
-    return { rewritten: rewritten.trim() };
-  } catch (err) {
-    console.error('Rewrite error:', err);
-    return { rewritten: prompt };
-  }
-}
-
-export async function generateImage(prompt, quality = 'standard') {
-  try {
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'dall-e-3',
-        prompt: prompt,
-        n: 1,
-        size: '1024x1024',
-        quality: quality,
-      })
+    const result = await generatePollCall({
+      topic,
+      numOptions,
+      pollType,
+      action,
+      existingOptions,
     });
-    const data = await response.json();
-    const url = data.data?.[0]?.url;
-    if (!url) throw new Error('No image URL');
-    return { url };
+    console.log('[Frontend] generatePollSuggestions success:', result.data);
+    return result.data;
   } catch (err) {
-    console.error('Image generation error:', err);
+    console.error('[Frontend] generatePollSuggestions error:', err);
     throw err;
   }
+}
+
+/**
+ * Rephrase a piece of text using Vertex AI.
+ * @param {string} text – The text to rephrase.
+ * @param {string} context – Context like 'question', 'option', 'content', etc.
+ * @returns {Promise<string>} The rephrased text.
+ */
+export async function rephraseContent(text, context = 'text') {
+  console.log('[Frontend] rephraseContent called, text length:', text?.length);
+  try {
+    const result = await rephraseContentCall({ text, context });
+    console.log('[Frontend] rephraseContent success, rephrased length:', result.data.rephrased?.length);
+    return result.data.rephrased;
+  } catch (err) {
+    console.error('[Frontend] rephraseContent error:', err);
+    return text; // fallback to original
+  }
+}
+
+/**
+ * Generate a single image using DALL‑E (with automatic prompt rewriting on the server).
+ * @param {string} prompt – Description of the image.
+ * @param {string} context – 'poll question' or 'poll option' (used for rewriting).
+ * @returns {Promise<string>} URL of the generated image.
+ */
+export async function generateImage(prompt, context = 'poll question') {
+  console.log('[Frontend] generateImage called, prompt length:', prompt?.length);
+  try {
+    const result = await generateImageCall({ prompt, context });
+    console.log('[Frontend] generateImage success, URL:', result.data.imageUrl);
+    return result.data.imageUrl;
+  } catch (err) {
+    console.error('[Frontend] generateImage error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Generate images for multiple poll options in batch.
+ * @param {string[]} optionTexts – Array of option texts.
+ * @param {string} pollQuestion – The poll question (for context).
+ * @returns {Promise<(string | null)[]>} Array of image URLs (null for failed).
+ */
+export async function generateOptionImages(optionTexts, pollQuestion) {
+  console.log('[Frontend] generateOptionImages called, options count:', optionTexts.length);
+  try {
+    const result = await generateOptionImagesCall({ optionTexts, pollQuestion });
+    console.log('[Frontend] generateOptionImages success, images count:', result.data.imageUrls?.length);
+    return result.data.imageUrls;
+  } catch (err) {
+    console.error('[Frontend] generateOptionImages error:', err);
+    return optionTexts.map(() => null);
+  }
+}
+
+/**
+ * Generate poll from a URL (article).
+ * @param {string} url – The article URL.
+ * @param {number} numOptions – Number of options (2-6).
+ * @param {string} pollType – 'quick', 'yesno', etc.
+ * @returns {Promise<{question: string, options: string[]}>}
+ */
+export async function generatePollFromURL(url, numOptions = 4, pollType = 'quick') {
+  console.log('[Frontend] generatePollFromURL called:', { url, numOptions, pollType });
+  try {
+    const result = await generatePollFromURLCall({ url, numOptions, pollType });
+    console.log('[Frontend] generatePollFromURL success:', result.data);
+    return result.data;
+  } catch (err) {
+    console.error('[Frontend] generatePollFromURL error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Generate AI insights for a poll (Premium feature).
+ * @param {string} pollId – The poll ID.
+ * @returns {Promise<{text: string, suggestion: string}>}
+ */
+export async function generatePollInsights(pollId) {
+  console.log('[Frontend] generatePollInsights called for poll:', pollId);
+  try {
+    const result = await generatePollInsightsCall({ pollId });
+    console.log('[Frontend] generatePollInsights success');
+    return result.data;
+  } catch (err) {
+    console.error('[Frontend] generatePollInsights error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Generate and upload an image (single call) – no CORS issues.
+ * @param {string} prompt – The image description.
+ * @param {string} folder – Firebase Storage folder path (e.g., "polls/{uid}/questions").
+ * @param {string} context – 'poll_question' or 'poll_option'.
+ * @param {string} style – Image style (auto, photorealistic, etc.)
+ * @param {string} pollQuestion – The poll question (for context).
+ * @param {string[]} pollOptions – Array of all option texts (for context and consistency).
+ * @param {number} [optionIndex] – Option index (for option images).
+ * @param {number} [totalOptions] – Total number of options.
+ * @returns {Promise<string>} Permanent Firebase Storage URL.
+ */
+export async function generateAndUploadImage(
+  prompt,
+  folder,
+  context = 'poll_question',
+  style = 'auto',
+  pollQuestion = undefined,
+  pollOptions = [],
+  optionIndex = undefined,
+  totalOptions = undefined,
+  pollType = 'quick',
+  customPrompt = false
+) {
+  console.log('[Frontend] generateAndUploadImage called', { customPrompt });
+  const result = await generateAndUploadImageCall({
+    prompt,
+    folder,
+    context,
+    style,
+    pollQuestion,
+    pollOptions,
+    optionIndex,
+    totalOptions,
+    pollType,
+    customPrompt,
+  });
+  return result.data.imageUrl;
+}
+
+/**
+ * Get a detailed, Gemini‑crafted DALL‑E prompt without generating an image.
+ * @param {string} subject – The raw question or option text.
+ * @param {string} context – 'poll_question' or 'poll_option'.
+ * @param {string} style – Image style (auto, photorealistic, etc.)
+ * @param {string} pollQuestion – The poll question (for context).
+ * @param {string[]} pollOptions – All option texts.
+ * @param {number} [optionIndex] – Option index (for options).
+ * @param {number} [totalOptions] – Total number of options.
+ * @param {string} pollType – Poll type (quick, yesno, etc.)
+ * @returns {Promise<string>} The detailed prompt.
+ */
+export async function getDetailedPrompt(
+  subject,
+  context = 'poll_question',
+  style = 'auto',
+  pollQuestion = undefined,
+  pollOptions = [],
+  optionIndex = undefined,
+  totalOptions = undefined,
+  pollType = 'quick'
+) {
+  console.log('[Frontend] getDetailedPrompt called');
+  const result = await getDetailedPromptCall({
+    subject,
+    context,
+    style,
+    pollQuestion,
+    pollOptions,
+    optionIndex,
+    totalOptions,
+    pollType,
+  });
+  return result.data.detailedPrompt;
+}
+
+// Kept for backward compatibility (if any code still calls it)
+export async function rewritePromptForDalle(prompt) {
+  console.warn('[Frontend] rewritePromptForDalle is deprecated; rewriting is done server‑side in generateImage.');
+  return prompt;
 }

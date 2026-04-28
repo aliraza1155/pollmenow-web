@@ -1,10 +1,15 @@
 // src/components/MediaPicker.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { uploadToFirebaseStorage } from '../lib/upload';
 
 export default function MediaPicker({ onPicked, currentImage = null, aspect = [4,3] }) {
   const [uploading, setUploading] = useState(false);
   const [image, setImage] = useState(currentImage);
+
+  // ⭐ Sync internal state when currentImage prop changes (e.g., after AI generation)
+  useEffect(() => {
+    setImage(currentImage);
+  }, [currentImage]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];

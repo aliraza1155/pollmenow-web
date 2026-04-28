@@ -1,70 +1,84 @@
-import { motion } from 'framer-motion'
-import { Sparkles, Share2, BarChart3 } from 'lucide-react'
+// ============================================================
+// src/components/HowItWorks.jsx
+// ============================================================
+import { motion } from 'framer-motion';
 
-const steps = [
+const STEPS = [
   {
-    num: '01',
-    icon: Sparkles,
-    title: 'Create with AI',
-    desc: 'Type your topic — AI generates professional, unbiased questions with balanced answer options in seconds.',
+    num:   '01',
+    icon:  '🤖',
+    title: 'Describe your topic',
+    desc:  'Type any topic — "remote work 2026", "sports rivalry", "product feedback" — and our AI instantly crafts a professional, unbiased poll with balanced answer options.',
+    highlight: 'Takes under 10 seconds',
   },
   {
-    num: '02',
-    icon: Share2,
-    title: 'Share anywhere',
-    desc: 'One-click share to any platform. Embed on your website with a single line of code.',
+    num:   '02',
+    icon:  '🎯',
+    title: 'Customize & target',
+    desc:  'Choose who sees your poll. Set a duration, make it public, private, or friends-only. Premium users can target by age, gender, and country for precision insights.',
+    highlight: 'Reach the right audience',
   },
   {
-    num: '03',
-    icon: BarChart3,
-    title: 'Watch live results',
-    desc: 'Real-time dashboard shows votes, demographic breakdowns, and AI trend insights as they happen.',
+    num:   '03',
+    icon:  '📊',
+    title: 'Watch results live',
+    desc:  'Votes flow in real time. Your dashboard shows live tallies, demographic breakdowns, geographic heatmaps, and AI trend insights as they happen — no refresh needed.',
+    highlight: 'Real-time analytics',
   },
-]
+];
 
 export default function HowItWorks() {
   return (
-    <section className="py-20 px-6 bg-gray-50/60">
-      <div className="max-w-6xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-80px' }}
-          className="text-center mb-14"
+    <section style={{ padding: '96px 24px', background: 'linear-gradient(180deg,#fafafa,#fff)' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+        <motion.div initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-80px' }}
+          style={{ textAlign: 'center', marginBottom: 64 }}
         >
-          <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-3">How it works</p>
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4 tracking-tight">
-            Three steps to viral insights
+          <p style={{ fontSize: 11, fontWeight: 800, color: '#6C5CE7', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 12 }}>How it works</p>
+          <h2 style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: 800, color: '#0d0d12', letterSpacing: '-.02em', marginBottom: 14, lineHeight: 1.2 }}>
+            From idea to live poll<br />in three steps
           </h2>
-          <p className="text-gray-500 max-w-md mx-auto">From idea to real-time results in under a minute.</p>
+          <p style={{ fontSize: 16, color: '#9898a8', maxWidth: 400, margin: '0 auto' }}>No design skills. No survey expertise. Just your topic and our AI.</p>
         </motion.div>
 
-        <div className="grid md:grid-cols-3 gap-8 relative">
-          <div className="hidden md:block absolute top-8 left-1/3 right-1/3 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 28, position: 'relative' }}>
+          {/* Connector line */}
+          <div style={{ position: 'absolute', top: 52, left: '18%', right: '18%', height: 1, background: 'linear-gradient(90deg,transparent,rgba(108,92,231,.3),transparent)', pointerEvents: 'none' }} />
 
-          {steps.map((step, i) => (
-            <motion.div
-              key={step.num}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-60px' }}
-              transition={{ delay: i * 0.12, duration: 0.5 }}
-              className="text-center group"
+          {STEPS.map((step, i) => (
+            <motion.div key={step.num}
+              initial={{ opacity: 0, y: 32 }} whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * .14, duration: .5 }}
+              style={{ background: '#fff', border: '1px solid #eee', borderRadius: 20, padding: '28px 24px', textAlign: 'center', boxShadow: '0 2px 16px rgba(0,0,0,.04)', transition: 'transform .18s, box-shadow .18s', cursor: 'default' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 12px 40px rgba(108,92,231,.12)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 2px 16px rgba(0,0,0,.04)'; }}
             >
-              <div className="relative inline-block mb-5">
-                <div className="w-16 h-16 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center mx-auto group-hover:border-primary/30 group-hover:shadow-md transition-all duration-300">
-                  <step.icon className="w-7 h-7 text-primary" />
+              {/* Step number + icon */}
+              <div style={{ position: 'relative', display: 'inline-block', marginBottom: 20 }}>
+                <div style={{ width: 72, height: 72, borderRadius: 20, background: 'linear-gradient(135deg,rgba(108,92,231,.1),rgba(168,85,247,.06))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, margin: '0 auto' }}>
+                  {step.icon}
                 </div>
-                <span className="absolute -top-2 -right-2 w-5 h-5 bg-primary text-white text-xs font-bold rounded-full flex items-center justify-center">
+                <div style={{ position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#6C5CE7,#a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff' }}>
                   {i + 1}
-                </span>
+                </div>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{step.title}</h3>
-              <p className="text-sm text-gray-500 leading-relaxed max-w-xs mx-auto">{step.desc}</p>
+
+              <p style={{ fontSize: 11, fontWeight: 700, color: '#6C5CE7', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>{step.num}</p>
+              <h3 style={{ fontSize: 17, fontWeight: 800, color: '#0d0d12', marginBottom: 10 }}>{step.title}</h3>
+              <p style={{ fontSize: 13, color: '#9898a8', lineHeight: 1.65, marginBottom: 14 }}>{step.desc}</p>
+              <span style={{ display: 'inline-block', background: '#f0eeff', color: '#6C5CE7', borderRadius: 20, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>
+                {step.highlight}
+              </span>
             </motion.div>
           ))}
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .hiw-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </section>
-  )
+  );
 }

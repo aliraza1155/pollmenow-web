@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../lib/firebase';
+import { motion } from 'framer-motion';
 
 const FEATURES = [
   'AI-generated polls in under 10 seconds',
@@ -12,43 +13,52 @@ const FEATURES = [
 ];
 
 const AUTH_ERROR_MSGS = {
-  'auth/user-not-found':     'No account found with this email.',
-  'auth/wrong-password':     'Incorrect password.',
-  'auth/invalid-email':      'Invalid email address.',
-  'auth/too-many-requests':  'Too many attempts. Try again later.',
+  'auth/user-not-found': 'No account found with this email.',
+  'auth/wrong-password': 'Incorrect password.',
+  'auth/invalid-email': 'Invalid email address.',
+  'auth/too-many-requests': 'Too many attempts. Try again later.',
   'auth/invalid-credential': 'Invalid email or password.',
 };
 
-function AuthLeft({ title, sub }) {
+function AuthLeft() {
   return (
-    <div style={{ background: 'linear-gradient(135deg, #6C5CE7 0%, #a855f7 60%, #ec4899 100%)', padding: '48px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 40 }}>
-        <div style={{ width: 36, height: 36, background: 'rgba(255,255,255,.2)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: '#fff' }}>P</div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>PollMeNow</span>
+    <div className="hidden lg:flex flex-col justify-center bg-gradient-to-br from-primary via-secondary to-pink-500 p-8 lg:p-12 text-white">
+      <div className="flex items-center gap-3 mb-8">
+        <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center text-xl font-bold">P</div>
+        <span className="text-xl font-bold tracking-tight">PollMeNow</span>
       </div>
-      <h2 style={{ fontSize: 28, fontWeight: 800, color: '#fff', lineHeight: 1.2, marginBottom: 12 }}>{title}</h2>
-      <p style={{ fontSize: 14, color: 'rgba(255,255,255,.75)', lineHeight: 1.6, marginBottom: 36 }}>{sub}</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2 className="text-3xl lg:text-4xl font-bold leading-tight mb-3">
+        Welcome back to PollMeNow
+      </h2>
+      <p className="text-white/80 text-sm lg:text-base mb-8">
+        Sign in to create polls, track analytics, and engage your audience.
+      </p>
+      <div className="space-y-3">
         {FEATURES.map(f => (
-          <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', flexShrink: 0, marginTop: 1 }}>✓</div>
-            <span style={{ fontSize: 13, color: 'rgba(255,255,255,.9)', lineHeight: 1.4 }}>{f}</span>
+          <div key={f} className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs mt-0.5">✓</div>
+            <span className="text-sm text-white/90">{f}</span>
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 40, background: 'rgba(255,255,255,.12)', borderRadius: 16, padding: '18px', backdropFilter: 'blur(10px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80' }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.8)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Live · Trending</span>
+      <div className="mt-10 bg-white/10 backdrop-blur rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-2 h-2 rounded-full bg-green-400"></div>
+          <span className="text-xs font-bold uppercase tracking-wide">Live · Trending</span>
         </div>
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>"What's the most critical feature for 2026?"</p>
-        {[{ label: 'AI Automation', pct: 44 }, { label: 'Privacy Control', pct: 30 }, { label: 'Cross-Platform', pct: 26 }].map(bar => (
-          <div key={bar.label} style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'rgba(255,255,255,.8)', marginBottom: 4 }}>
-              <span>{bar.label}</span><span style={{ fontWeight: 700 }}>{bar.pct}%</span>
+        <p className="text-sm font-semibold mb-3">"What's the most critical feature for 2026?"</p>
+        {[
+          { label: 'AI Automation', pct: 44 },
+          { label: 'Privacy Control', pct: 30 },
+          { label: 'Cross-Platform', pct: 26 },
+        ].map(bar => (
+          <div key={bar.label} className="mb-2">
+            <div className="flex justify-between text-xs mb-1">
+              <span>{bar.label}</span>
+              <span className="font-bold">{bar.pct}%</span>
             </div>
-            <div style={{ height: 4, background: 'rgba(255,255,255,.2)', borderRadius: 99, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${bar.pct}%`, background: '#fff', borderRadius: 99 }} />
+            <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-white rounded-full" style={{ width: `${bar.pct}%` }} />
             </div>
           </div>
         ))}
@@ -96,95 +106,81 @@ export default function Login() {
     }
   };
 
-  const inp = {
-    width: '100%',
-    background: '#f7f7fb',
-    border: '1px solid #e8e8ee',
-    borderRadius: 10,
-    padding: '12px 14px',
-    fontSize: 14,
-    color: '#111',
-    outline: 'none',
-    fontFamily: 'inherit',
-    boxSizing: 'border-box',
-    transition: 'border-color .15s',
-  };
-
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '1fr 1fr', background: '#fff' }}>
-      <AuthLeft title="Welcome back to PollMeNow" sub="Sign in to create polls, track your analytics, and engage with your audience." />
+    <div className="min-h-screen flex flex-col lg:flex-row bg-white">
+      {/* Left Panel - Only visible on large screens */}
+      <AuthLeft />
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 48px' }}>
-        <div style={{ width: '100%', maxWidth: 380 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#111', marginBottom: 6 }}>Sign in</h1>
-          <p style={{ fontSize: 14, color: '#9898a8', marginBottom: 28 }}>
-            Don't have an account? <Link to="/register" style={{ color: '#6C5CE7', fontWeight: 700, textDecoration: 'none' }}>Create one free →</Link>
-          </p>
+      {/* Right Panel - Form */}
+      <div className="flex-1 flex items-center justify-center px-6 py-12 lg:px-12">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          <div className="text-center lg:text-left mb-8">
+            <h1 className="text-3xl font-bold text-gray-900">Sign in</h1>
+            <p className="text-gray-500 mt-2">
+              Don't have an account?{' '}
+              <Link to="/register" className="text-primary font-semibold hover:underline">
+                Create one free →
+              </Link>
+            </p>
+          </div>
 
           <button
             onClick={handleGoogle}
-            style={{
-              width: '100%',
-              background: '#fff',
-              border: '1px solid #e8e8ee',
-              borderRadius: 12,
-              padding: '12px 16px',
-              fontSize: 14,
-              fontWeight: 600,
-              color: '#111',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 10,
-              marginBottom: 20,
-              transition: 'background .12s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#fafafa')}
-            onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+            className="w-full flex items-center justify-center gap-3 border border-gray-300 rounded-xl py-3 px-4 text-gray-700 font-medium hover:bg-gray-50 transition mb-6"
           >
-            <span style={{ fontSize: 18 }}>G</span> Continue with Google
+            <span className="text-lg font-bold">G</span> Continue with Google
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
-            <span style={{ fontSize: 12, color: '#bbb' }}>or</span>
-            <div style={{ flex: 1, height: 1, background: '#f0f0f0' }} />
+          <div className="relative flex items-center my-6">
+            <div className="flex-grow border-t border-gray-200"></div>
+            <span className="mx-4 text-xs text-gray-400">or</span>
+            <div className="flex-grow border-t border-gray-200"></div>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#6b6b7b', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Email address</label>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                Email address
+              </label>
               <input
-                style={inp}
                 type="email"
-                placeholder="you@example.com"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                placeholder="you@example.com"
                 required
-                onFocus={e => (e.target.style.borderColor = '#6C5CE7')}
-                onBlur={e => (e.target.style.borderColor = '#e8e8ee')}
               />
             </div>
+
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Password</label>
-                <Link to="/reset-password" style={{ fontSize: 12, color: '#6C5CE7', fontWeight: 600, textDecoration: 'none' }}>Forgot?</Link>
+              <div className="flex justify-between mb-1">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide">
+                  Password
+                </label>
+                <Link
+                  to="/reset-password"
+                  className="text-xs text-primary font-semibold hover:underline"
+                >
+                  Forgot?
+                </Link>
               </div>
               <input
-                style={inp}
                 type="password"
-                placeholder="••••••••"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                placeholder="••••••••"
                 required
-                onFocus={e => (e.target.style.borderColor = '#6C5CE7')}
-                onBlur={e => (e.target.style.borderColor = '#e8e8ee')}
               />
             </div>
 
             {error && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#7f1d1d', fontWeight: 500 }}>
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
                 {error}
               </div>
             )}
@@ -192,25 +188,11 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              style={{
-                background: loading ? '#e8e8ee' : 'linear-gradient(135deg,#6C5CE7,#a855f7)',
-                color: loading ? '#aaa' : '#fff',
-                border: 'none',
-                borderRadius: 12,
-                padding: '13px',
-                fontSize: 15,
-                fontWeight: 800,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                marginTop: 4,
-              }}
+              className="w-full bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 rounded-xl hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
-                  <div style={{ width: 16, height: 16, border: '2px solid #aaa', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Signing in...
                 </>
               ) : (
@@ -218,20 +200,8 @@ export default function Login() {
               )}
             </button>
           </form>
-        </div>
+        </motion.div>
       </div>
-
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-          @media (max-width: 768px) {
-            .login-split { grid-template-columns: 1fr !important; }
-            .auth-left { display: none; }
-          }
-        `}
-      </style>
     </div>
   );
 }

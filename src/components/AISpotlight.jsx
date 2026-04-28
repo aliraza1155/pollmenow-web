@@ -1,144 +1,170 @@
-import { motion } from 'framer-motion'
-import { Bot, Sparkles, Image as ImageIcon, ArrowRight, Check } from 'lucide-react'
+// src/components/AISpotlight.jsx
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 
-const chatMessages = [
-  { type: 'user', text: 'Create a poll about remote work trends for 2026' },
-  { type: 'bot', text: 'Generating your poll now...' },
-]
+const CAPABILITIES = [
+  {
+    icon:   '🤖',
+    title:  'Auto-generate full polls',
+    desc:   'Describe any topic in plain English — AI writes the question and up to 6 balanced, unbiased answer options in seconds.',
+    badge:  null,
+  },
+  {
+    icon:   '✏️',
+    title:  'AI rephrase & improve',
+    desc:   'Already have a question drafted? Hit the sparkle button to let AI polish the wording for clarity and engagement.',
+    badge:  null,
+  },
+  {
+    icon:   '🖼',
+    title:  'AI image generation',
+    desc:   'Generate photorealistic images for poll options — perfect for comparison and live polls — without needing a designer.',
+    badge:  'Premium',
+  },
+  {
+    icon:   '🛡',
+    title:  'Content moderation',
+    desc:   'Every poll is scanned for inappropriate content before publishing, keeping the platform safe and trusted.',
+    badge:  null,
+  },
+];
 
-const generatedOptions = [
+const CHAT_FLOW = [
+  { from: 'user', text: 'Create a poll about remote work preferences for 2026' },
+  { from: 'bot',  text: '✦ Generating your poll...', loading: true },
+];
+
+const GENERATED_OPTIONS = [
   'Fully remote — I work from anywhere',
   'Hybrid — mix of home and office',
   'Fully in-office — collaboration matters',
-  'Flexible contract — depends on the week',
-]
-
-const capabilities = [
-  {
-    icon: Bot,
-    title: 'Auto-generate questions',
-    desc: 'AI writes professional, unbiased questions for any topic',
-  },
-  {
-    icon: Sparkles,
-    title: 'Smart option suggestions',
-    desc: 'Balanced, relevant answers populated automatically',
-  },
-  {
-    icon: ImageIcon,
-    title: 'AI image generation',
-    badge: 'Premium',
-    desc: 'Create visual poll options without needing a designer',
-  },
-]
+  'Flexible contract — depends on the project',
+];
 
 export default function AISpotlight() {
+  const [step, setStep] = useState(1); // 1 = chat, 2 = generated
+
   return (
-    <section className="py-20 px-6 bg-white">
-      <div className="max-w-6xl mx-auto">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
+    <section style={{ padding: '96px 24px', background: '#fff' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center' }}>
 
-          {/* Left — text */}
-          <motion.div
-            initial={{ opacity: 0, x: -24 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true, margin: '-80px' }}
-            transition={{ duration: 0.6 }}
-          >
-            <p className="text-xs font-semibold text-primary uppercase tracking-widest mb-3">AI assistant</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4 leading-tight tracking-tight">
-              Let AI do<br />the heavy lifting
-            </h2>
-            <p className="text-gray-500 leading-relaxed mb-8 max-w-md">
-              Just describe your topic — PollMeNow crafts professional polls instantly. 
-              Premium users also get AI-generated images for visual, eye-catching polls.
-            </p>
+        {/* Left: text */}
+        <motion.div initial={{ opacity: 0, x: -24 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true, margin: '-80px' }} transition={{ duration: .6 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, color: '#6C5CE7', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 12 }}>AI assistant</p>
+          <h2 style={{ fontSize: 'clamp(26px, 3.5vw, 40px)', fontWeight: 800, color: '#0d0d12', letterSpacing: '-.02em', lineHeight: 1.2, marginBottom: 16 }}>
+            Let AI do<br />the heavy lifting
+          </h2>
+          <p style={{ fontSize: 15, color: '#9898a8', lineHeight: 1.7, maxWidth: 420, marginBottom: 32 }}>
+            Just describe your topic — PollMeNow crafts professional polls instantly. No prompting experience needed. Our AI handles question phrasing, option balance, and even image generation for visual polls.
+          </p>
 
-            <div className="space-y-5">
-              {capabilities.map((cap, i) => (
-                <motion.div
-                  key={cap.title}
-                  initial={{ opacity: 0, x: -16 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.1, duration: 0.4 }}
-                  className="flex gap-4 items-start group"
-                >
-                  <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
-                    <cap.icon className="w-4 h-4 text-primary" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 32 }}>
+            {CAPABILITIES.map((cap, i) => (
+              <motion.div key={cap.title}
+                initial={{ opacity: 0, x: -14 }} whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }} transition={{ delay: i * .1, duration: .4 }}
+                style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(108,92,231,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                  {cap.icon}
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>{cap.title}</span>
+                    {cap.badge && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(108,92,231,.1)', color: '#6C5CE7', borderRadius: 20, padding: '2px 8px' }}>{cap.badge}</span>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-sm font-semibold text-gray-900">{cap.title}</span>
-                      {cap.badge && (
-                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
-                          {cap.badge}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-500">{cap.desc}</p>
-                  </div>
-                </motion.div>
-              ))}
+                  <p style={{ fontSize: 13, color: '#9898a8', lineHeight: 1.55, margin: 0 }}>{cap.desc}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <Link to="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#6C5CE7,#a855f7)', color: '#fff', borderRadius: 12, padding: '12px 22px', fontSize: 14, fontWeight: 800, textDecoration: 'none' }}>
+            🤖 Try AI generation free →
+          </Link>
+        </motion.div>
+
+        {/* Right: interactive mockup */}
+        <motion.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-80px' }} transition={{ delay: .15, duration: .6 }}>
+          <div style={{ background: '#f7f7fb', border: '1px solid #e8e8ee', borderRadius: 20, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,.07)' }}>
+            {/* Toolbar */}
+            <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f5', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 5 }}>
+                {['#ff5f57','#febc2e','#28c840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
+              </div>
+              <div style={{ flex: 1, background: '#f4f4f6', borderRadius: 6, padding: '4px 12px', fontSize: 11, color: '#9898a8', textAlign: 'center' }}>
+                PollMeNow AI assistant
+              </div>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6C5CE7', animation: 'pulse 2s infinite' }} />
             </div>
-          </motion.div>
 
-          {/* Right — AI chat mockup */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-80px' }}
-            transition={{ delay: 0.15, duration: 0.6 }}
-          >
-            <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-              <div className="px-4 py-3 border-b border-gray-100 bg-white flex items-center gap-2">
-                <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                <span className="text-xs font-medium text-gray-500">PollMeNow AI assistant</span>
-              </div>
-
-              <div className="p-4 space-y-3">
-                <div className="flex justify-end">
-                  <div className="bg-primary text-white text-sm px-4 py-2.5 rounded-2xl rounded-tr-sm max-w-[80%]">
-                    Create a poll about remote work trends for 2026
-                  </div>
-                </div>
-                <div className="flex justify-start">
-                  <div className="bg-white border border-gray-100 text-gray-600 text-sm px-4 py-2.5 rounded-2xl rounded-tl-sm max-w-[80%] shadow-xs">
-                    Generating your poll now...
-                  </div>
+            {/* Chat area */}
+            <div style={{ padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* User message */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ background: 'linear-gradient(135deg,#6C5CE7,#a855f7)', color: '#fff', borderRadius: '14px 14px 4px 14px', padding: '10px 14px', maxWidth: '80%', fontSize: 13, lineHeight: 1.5 }}>
+                  Create a poll about remote work preferences for 2026
                 </div>
               </div>
 
-              <div className="mx-4 mb-4 bg-white border border-gray-100 rounded-xl p-4 shadow-xs">
-                <div className="flex items-center gap-1.5 mb-3">
-                  <Sparkles className="w-3 h-3 text-primary" />
-                  <span className="text-xs font-semibold text-primary uppercase tracking-wider">AI generated</span>
+              {/* Bot thinking */}
+              {step === 1 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: '14px 14px 14px 4px', padding: '10px 14px', fontSize: 13, color: '#666' }}>
+                    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+                      <span style={{ animation: 'dot1 1.4s infinite', fontSize: 18, color: '#6C5CE7' }}>·</span>
+                      <span style={{ animation: 'dot2 1.4s infinite .15s', fontSize: 18, color: '#6C5CE7' }}>·</span>
+                      <span style={{ animation: 'dot3 1.4s infinite .3s', fontSize: 18, color: '#6C5CE7' }}>·</span>
+                    </span>
+                    &nbsp; Generating your poll...
+                  </div>
                 </div>
-                <p className="text-sm font-semibold text-gray-900 mb-3">
-                  What is your preferred work model in 2026?
-                </p>
-                <div className="space-y-1.5 mb-4">
-                  {generatedOptions.map((opt, i) => (
-                    <div key={i} className="flex items-center gap-2.5 text-xs text-gray-600 py-1.5 border-b border-gray-50 last:border-0">
-                      <div className="w-4 h-4 rounded border border-gray-200 flex-shrink-0" />
-                      {opt}
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <button className="bg-primary text-white text-xs px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors">
-                    Publish poll
-                  </button>
-                  <button className="bg-gray-50 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg font-medium hover:bg-gray-100 transition-colors">
-                    Regenerate
-                  </button>
-                </div>
+              )}
+            </div>
+
+            {/* Generated poll card */}
+            <div style={{ margin: '0 16px 16px', background: '#fff', border: '1px solid #e8e8ee', borderRadius: 16, padding: '18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                <span style={{ fontSize: 13 }}>✦</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#6C5CE7', textTransform: 'uppercase', letterSpacing: '.05em' }}>AI generated</span>
+                <span style={{ marginLeft: 'auto', background: '#f0fdf4', color: '#15803d', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>Ready to publish</span>
+              </div>
+
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 14, lineHeight: 1.4 }}>
+                "What is your preferred work model in 2026?"
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 16 }}>
+                {GENERATED_OPTIONS.map((opt, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 12px', borderRadius: 8, background: '#f7f7fb', border: '1px solid #eee', fontSize: 12, color: '#444', fontWeight: 500 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: '1.5px solid #d4ccf0', flexShrink: 0 }} />
+                    {opt}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Link to="/create" style={{ background: 'linear-gradient(135deg,#6C5CE7,#a855f7)', color: '#fff', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Publish poll</Link>
+                <button style={{ background: '#f4f4f6', border: '1px solid #e8e8ee', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#6b6b7b', cursor: 'pointer' }}>Regenerate</button>
+                <button style={{ background: '#f4f4f6', border: '1px solid #e8e8ee', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#6b6b7b', cursor: 'pointer' }}>Edit</button>
               </div>
             </div>
-          </motion.div>
-
-        </div>
+          </div>
+        </motion.div>
       </div>
+
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+        @keyframes dot1 { 0%,60%,100%{opacity:0}30%{opacity:1} }
+        @keyframes dot2 { 0%,60%,100%{opacity:0}30%{opacity:1} }
+        @keyframes dot3 { 0%,60%,100%{opacity:0}30%{opacity:1} }
+        @media (max-width: 768px) {
+          .ai-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </section>
-  )
+  );
 }

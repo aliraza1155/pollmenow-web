@@ -6,6 +6,7 @@ import { doc, setDoc, getDocs, query, collection, where } from 'firebase/firesto
 import { auth, db } from '../lib/firebase';
 import { detectLocation } from '../lib/location';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { motion } from 'framer-motion';
 
 const FEATURES = [
   'AI-generated polls in under 10 seconds',
@@ -14,36 +15,45 @@ const FEATURES = [
   '1M+ votes cast on the platform',
 ];
 
-function AuthLeft({ title, sub }) {
+function AuthLeft() {
   return (
-    <div style={{ background: 'linear-gradient(135deg, #6C5CE7 0%, #a855f7 60%, #ec4899 100%)', padding: '48px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 40 }}>
-        <div style={{ width: 36, height: 36, background: 'rgba(255,255,255,.2)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: '#fff' }}>P</div>
-        <span style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>PollMeNow</span>
+    <div className="hidden lg:flex flex-col justify-center bg-gradient-to-br from-primary via-secondary to-pink-500 p-8 lg:p-12 text-white">
+      <div className="flex items-center gap-3 mb-8">
+        <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center text-xl font-bold">P</div>
+        <span className="text-xl font-bold tracking-tight">PollMeNow</span>
       </div>
-      <h2 style={{ fontSize: 28, fontWeight: 800, color: '#fff', lineHeight: 1.2, marginBottom: 12 }}>{title}</h2>
-      <p style={{ fontSize: 14, color: 'rgba(255,255,255,.75)', lineHeight: 1.6, marginBottom: 36 }}>{sub}</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2 className="text-3xl lg:text-4xl font-bold leading-tight mb-3">
+        Join PollMeNow
+      </h2>
+      <p className="text-white/80 text-sm lg:text-base mb-8">
+        Start creating polls, gather insights, and grow your audience.
+      </p>
+      <div className="space-y-3">
         {FEATURES.map(f => (
-          <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', flexShrink: 0, marginTop: 1 }}>✓</div>
-            <span style={{ fontSize: 13, color: 'rgba(255,255,255,.9)', lineHeight: 1.4 }}>{f}</span>
+          <div key={f} className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs mt-0.5">✓</div>
+            <span className="text-sm text-white/90">{f}</span>
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 40, background: 'rgba(255,255,255,.12)', borderRadius: 16, padding: '18px', backdropFilter: 'blur(10px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80' }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.8)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Live · Trending</span>
+      <div className="mt-10 bg-white/10 backdrop-blur rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-2 h-2 rounded-full bg-green-400"></div>
+          <span className="text-xs font-bold uppercase tracking-wide">Live · Trending</span>
         </div>
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 12 }}>"What's the most critical feature for 2026?"</p>
-        {[{ label: 'AI Automation', pct: 44 }, { label: 'Privacy Control', pct: 30 }, { label: 'Cross-Platform', pct: 26 }].map(bar => (
-          <div key={bar.label} style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'rgba(255,255,255,.8)', marginBottom: 4 }}>
-              <span>{bar.label}</span><span style={{ fontWeight: 700 }}>{bar.pct}%</span>
+        <p className="text-sm font-semibold mb-3">"What's the most critical feature for 2026?"</p>
+        {[
+          { label: 'AI Automation', pct: 44 },
+          { label: 'Privacy Control', pct: 30 },
+          { label: 'Cross-Platform', pct: 26 },
+        ].map(bar => (
+          <div key={bar.label} className="mb-2">
+            <div className="flex justify-between text-xs mb-1">
+              <span>{bar.label}</span>
+              <span className="font-bold">{bar.pct}%</span>
             </div>
-            <div style={{ height: 4, background: 'rgba(255,255,255,.2)', borderRadius: 99, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${bar.pct}%`, background: '#fff', borderRadius: 99 }} />
+            <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-white rounded-full" style={{ width: `${bar.pct}%` }} />
             </div>
           </div>
         ))}
@@ -72,9 +82,12 @@ export default function Register() {
   const [detectedLocation, setDetectedLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
 
-  // Password strength
   const [passwordChecks, setPasswordChecks] = useState({
-    length: false, upper: false, lower: false, number: false, special: false,
+    length: false,
+    upper: false,
+    lower: false,
+    number: false,
+    special: false,
   });
 
   useEffect(() => {
@@ -87,7 +100,6 @@ export default function Register() {
     });
   }, [password]);
 
-  // Username availability
   useEffect(() => {
     const delay = setTimeout(async () => {
       if (username.length < 3) {
@@ -108,7 +120,6 @@ export default function Register() {
     return () => clearTimeout(delay);
   }, [username]);
 
-  // Detect location (IP + GPS)
   useEffect(() => {
     const getLocation = async () => {
       const loc = await detectLocation();
@@ -195,74 +206,236 @@ export default function Register() {
   };
 
   const allChecksPassed = Object.values(passwordChecks).every(v => v === true);
-  const inp = {
-    width: '100%',
-    background: '#f7f7fb',
-    border: '1px solid #e8e8ee',
-    borderRadius: 10,
-    padding: '12px 14px',
-    fontSize: 14,
-    color: '#111',
-    outline: 'none',
-    fontFamily: 'inherit',
-    boxSizing: 'border-box',
-    transition: 'border-color .15s',
-  };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '1fr 1fr', background: '#fff' }}>
-      <AuthLeft title="Join PollMeNow" sub="Start creating polls, gather insights, and grow your audience." />
+    <div className="min-h-screen flex flex-col lg:flex-row bg-white">
+      <AuthLeft />
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 48px' }}>
-        <div style={{ width: '100%', maxWidth: 480 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#111', marginBottom: 6 }}>Create account</h1>
-          <p style={{ fontSize: 14, color: '#9898a8', marginBottom: 28 }}>
-            Already have an account? <Link to="/login" style={{ color: '#6C5CE7', fontWeight: 700, textDecoration: 'none' }}>Sign in →</Link>
-          </p>
+      <div className="flex-1 flex items-center justify-center px-6 py-12 lg:px-12">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          <div className="text-center lg:text-left mb-8">
+            <h1 className="text-3xl font-bold text-gray-900">Create account</h1>
+            <p className="text-gray-500 mt-2">
+              Already have an account?{' '}
+              <Link to="/login" className="text-primary font-semibold hover:underline">
+                Sign in →
+              </Link>
+            </p>
+          </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Account type toggle */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-              <button type="button" onClick={() => setUserType('individual')} style={{ flex: 1, background: userType === 'individual' ? 'linear-gradient(135deg,#6C5CE7,#a855f7)' : '#fff', color: userType === 'individual' ? '#fff' : '#6b6b7b', border: '1px solid #e8e8ee', borderRadius: 12, padding: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>Individual</button>
-              <button type="button" onClick={() => setUserType('organization')} style={{ flex: 1, background: userType === 'organization' ? 'linear-gradient(135deg,#6C5CE7,#a855f7)' : '#fff', color: userType === 'organization' ? '#fff' : '#6b6b7b', border: '1px solid #e8e8ee', borderRadius: 12, padding: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}>Organization</button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setUserType('individual')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition ${
+                  userType === 'individual'
+                    ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-sm'
+                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Individual
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserType('organization')}
+                className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition ${
+                  userType === 'organization'
+                    ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-sm'
+                    : 'border border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Organization
+              </button>
             </div>
 
             {/* Common fields */}
-            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Email *</label><input style={inp} type="email" value={email} onChange={e => setEmail(e.target.value)} required /></div>
-            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Username *</label><input style={inp} value={username} onChange={e => setUsername(e.target.value)} required />
-              {username.length >= 3 && <p style={{ fontSize: 10, marginTop: 3, color: usernameAvailable === true ? '#22c55e' : usernameAvailable === false ? '#ef4444' : '#9898a8' }}>{checkingUsername ? 'Checking...' : usernameAvailable === true ? '✓ Available' : usernameAvailable === false ? '✗ Taken' : ''}</p>}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                Email *
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                required
+              />
             </div>
-            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Password *</label><input style={inp} type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8, fontSize: 10, color: '#9898a8' }}>
-                <span style={{ color: passwordChecks.length ? '#22c55e' : '#ef4444' }}>✓ 8+ chars</span>
-                <span style={{ color: passwordChecks.upper ? '#22c55e' : '#ef4444' }}>✓ Uppercase</span>
-                <span style={{ color: passwordChecks.lower ? '#22c55e' : '#ef4444' }}>✓ Lowercase</span>
-                <span style={{ color: passwordChecks.number ? '#22c55e' : '#ef4444' }}>✓ Number</span>
-                <span style={{ color: passwordChecks.special ? '#22c55e' : '#ef4444' }}>✓ Special</span>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                Username *
+              </label>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                required
+              />
+              {username.length >= 3 && (
+                <p
+                  className={`text-xs mt-1 ${
+                    usernameAvailable === true
+                      ? 'text-green-600'
+                      : usernameAvailable === false
+                      ? 'text-red-500'
+                      : 'text-gray-400'
+                  }`}
+                >
+                  {checkingUsername
+                    ? 'Checking...'
+                    : usernameAvailable === true
+                    ? '✓ Available'
+                    : usernameAvailable === false
+                    ? '✗ Taken'
+                    : ''}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                Password *
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                required
+              />
+              <div className="flex flex-wrap gap-3 mt-2 text-xs">
+                <span className={passwordChecks.length ? 'text-green-600' : 'text-gray-400'}>
+                  ✓ 8+ chars
+                </span>
+                <span className={passwordChecks.upper ? 'text-green-600' : 'text-gray-400'}>
+                  ✓ Uppercase
+                </span>
+                <span className={passwordChecks.lower ? 'text-green-600' : 'text-gray-400'}>
+                  ✓ Lowercase
+                </span>
+                <span className={passwordChecks.number ? 'text-green-600' : 'text-gray-400'}>
+                  ✓ Number
+                </span>
+                <span className={passwordChecks.special ? 'text-green-600' : 'text-gray-400'}>
+                  ✓ Special
+                </span>
               </div>
             </div>
-            <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Phone (optional)</label><input style={inp} type="tel" placeholder="+1234567890" value={phone} onChange={e => setPhone(e.target.value)} /></div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                Phone (optional)
+              </label>
+              <input
+                type="tel"
+                placeholder="+1234567890"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+              />
+            </div>
 
             {/* Individual fields */}
             {userType === 'individual' && (
               <>
-                <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Full name *</label><input style={inp} value={name} onChange={e => setName(e.target.value)} required /></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Age</label><input style={inp} type="number" value={age} onChange={e => setAge(e.target.value)} /></div>
-                  <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Gender</label><select style={inp} value={gender} onChange={e => setGender(e.target.value)}><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                    Full name *
+                  </label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                    required
+                  />
                 </div>
-                {locationLoading && <p style={{ fontSize: 11, color: '#9898a8' }}>Detecting location...</p>}
-                {detectedLocation?.country && <p style={{ fontSize: 11, color: '#22c55e' }}>📍 Country detected: {detectedLocation.country}</p>}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                      Age
+                    </label>
+                    <input
+                      type="number"
+                      value={age}
+                      onChange={(e) => setAge(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                      Gender
+                    </label>
+                    <select
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition bg-white"
+                    >
+                      <option value="">Select</option>
+                      <option>Male</option>
+                      <option>Female</option>
+                      <option>Other</option>
+                      <option>Prefer not to say</option>
+                    </select>
+                  </div>
+                </div>
+
+                {locationLoading && (
+                  <p className="text-xs text-gray-400">Detecting location...</p>
+                )}
+                {detectedLocation?.country && (
+                  <p className="text-xs text-green-600">
+                    📍 Country detected: {detectedLocation.country}
+                  </p>
+                )}
               </>
             )}
 
             {/* Organization fields */}
             {userType === 'organization' && (
               <>
-                <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Organization name *</label><input style={inp} value={orgName} onChange={e => setOrgName(e.target.value)} required /></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>Country *</label><input style={inp} value={orgCountry} onChange={e => setOrgCountry(e.target.value)} required /></div>
-                  <div><label style={{ fontSize: 12, fontWeight: 700, color: '#6b6b7b', marginBottom: 4, display: 'block' }}>City *</label><input style={inp} value={orgCity} onChange={e => setOrgCity(e.target.value)} required /></div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                    Organization name *
+                  </label>
+                  <input
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                      Country *
+                    </label>
+                    <input
+                      value={orgCountry}
+                      onChange={(e) => setOrgCountry(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                      City *
+                    </label>
+                    <input
+                      value={orgCity}
+                      onChange={(e) => setOrgCity(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                      required
+                    />
+                  </div>
                 </div>
               </>
             )}
@@ -270,25 +443,11 @@ export default function Register() {
             <button
               type="submit"
               disabled={loading || !allChecksPassed || usernameAvailable !== true}
-              style={{
-                background: (loading || !allChecksPassed || usernameAvailable !== true) ? '#e8e8ee' : 'linear-gradient(135deg,#6C5CE7,#a855f7)',
-                color: (loading || !allChecksPassed || usernameAvailable !== true) ? '#aaa' : '#fff',
-                border: 'none',
-                borderRadius: 12,
-                padding: '13px',
-                fontSize: 15,
-                fontWeight: 800,
-                cursor: (loading || !allChecksPassed || usernameAvailable !== true) ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                marginTop: 8,
-              }}
+              className="w-full bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 rounded-xl hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-4"
             >
               {loading ? (
                 <>
-                  <div style={{ width: 16, height: 16, border: '2px solid #aaa', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Creating account...
                 </>
               ) : (
@@ -296,20 +455,8 @@ export default function Register() {
               )}
             </button>
           </form>
-        </div>
+        </motion.div>
       </div>
-
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-          @media (max-width: 768px) {
-            .auth-split { grid-template-columns: 1fr !important; }
-            .auth-left { display: none; }
-          }
-        `}
-      </style>
     </div>
   );
 }
