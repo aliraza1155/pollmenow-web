@@ -55,6 +55,7 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [followingCreator, setFollowingCreator] = useState(false);
+  const [followingLoading, setFollowingLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -100,10 +101,11 @@ export default function ProfilePage() {
           country: d.location?.country || '',
         });
 
+        // Gracefully handle permission errors for followers/following
         const [pollsSnap, fols, fing] = await Promise.all([
           getDocs(query(collection(db, 'polls'), where('creator.id', '==', userId), orderBy('createdAt', 'desc'))),
-          getFollowers(userId),
-          getFollowing(userId),
+          getFollowers(userId).catch(() => []),
+          getFollowing(userId).catch(() => []),
         ]);
         setPolls(pollsSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) })));
         setFollowers(fols);
@@ -196,6 +198,8 @@ export default function ProfilePage() {
       navigate('/login');
       return;
     }
+    if (followingLoading) return;
+    setFollowingLoading(true);
     try {
       if (followingCreator) {
         await unfollowUser(userId, user.uid);
@@ -208,6 +212,8 @@ export default function ProfilePage() {
       }
     } catch (err) {
       showToast('error', err.message);
+    } finally {
+      setFollowingLoading(false);
     }
   };
 
@@ -468,6 +474,8 @@ export default function ProfilePage() {
                     variant={followingCreator ? 'secondary' : 'primary'}
                     size="small"
                     className="w-full"
+                    loading={followingLoading}
+                    disabled={followingLoading}
                   >
                     {followingCreator ? '✓ Following' : '+ Follow'}
                   </Button>
@@ -526,14 +534,20 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs - team tab navigates to /team instead of setting tab state */}
         <div className="flex gap-1 border-b border-gray-200 mb-6">
           {['polls', 'achievements', 'about', profile.type === 'organization' ? 'team' : null].filter(Boolean).map(t => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                if (t === 'team') {
+                  navigate('/team');
+                } else {
+                  setTab(t);
+                }
+              }}
               className={`px-4 py-2 text-sm font-medium transition ${
-                tab === t
+                (t === 'team' ? false : tab === t)
                   ? 'text-[#6C5CE7] border-b-2 border-[#6C5CE7]'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -643,15 +657,7 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Team tab placeholder */}
-        {tab === 'team' && profile.type === 'organization' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 text-center py-12">
-            <p className="text-gray-500">Team management coming soon.</p>
-            <Button href="/team" variant="primary" className="mt-4">
-              Manage team →
-            </Button>
-          </div>
-        )}
+        {/* Team tab placeholder removed – navigation handled directly */}
       </div>
     </div>
   );

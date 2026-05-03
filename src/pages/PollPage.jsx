@@ -7,11 +7,10 @@ import { usePoll } from '../hooks/usePoll';
 import { submitVote, hasUserVoted } from '../lib/vote';
 import { isFollowing, followUser, unfollowUser } from '../lib/follow';
 import { getPollAnalytics } from '../lib/analytics';
-import { hasPremiumAnalytics } from '../lib/tierUtils';
+import { hasPremiumAnalytics, requiresLoginToVote } from '../lib/tierUtils';
 import { formatDate } from '../lib/utils';
 import { trackPollView } from '../lib/viewTracker';
 import ShareWidget from '../components/ShareWidget';
-import { Button, Card } from '../components/UI';
 
 const TYPE_META = {
   quick: { label: '⚡ Quick Poll', cls: 'bg-amber-50 text-amber-800' },
@@ -54,6 +53,17 @@ export default function PollPage() {
   const [showShare, setShowShare] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [followingLoading, setFollowingLoading] = useState(false);
+  const [permissionError, setPermissionError] = useState(false);
+
+  // Detect permission error (non‑logged‑in user trying to view a restricted poll)
+  useEffect(() => {
+    if (error && (error.includes('permission-denied') || error.includes('Missing or insufficient permissions'))) {
+      setPermissionError(true);
+    } else {
+      setPermissionError(false);
+    }
+  }, [error]);
 
   useEffect(() => {
     if (!poll) return;
@@ -67,6 +77,7 @@ export default function PollPage() {
         setIsFollowingCreator(fol);
         setHasVoted(voted);
       } else if (poll.anonymous) {
+        // Only check anonymous vote if poll allows anonymous voting
         setHasVoted(await hasUserVoted(poll.id, undefined, true));
       }
       trackPollView(poll.id, user?.uid).catch(() => {});
@@ -108,13 +119,13 @@ export default function PollPage() {
     setVoting(true);
     try {
       await submitVote(
-        poll.id,
-        selectedOption,
-        user?.uid,
-        voteAnonymously && poll.visibility !== 'private',
-        poll.visibility === 'private' ? accessCode : undefined,
-        poll.creator.tier
-      );
+  poll.id,
+  selectedOption,
+  user?.uid,
+  voteAnonymously && poll.visibility !== 'private',
+  poll.visibility === 'private' ? accessCode : undefined,
+  poll.creator?.tier || 'free'
+);
       setHasVoted(true);
       notify('success', 'Your vote has been recorded! 🎉');
     } catch (err) {
@@ -134,6 +145,7 @@ export default function PollPage() {
       return;
     }
     if (isCreator) return;
+    setFollowingLoading(true);
     try {
       if (isFollowingCreator) {
         await unfollowUser(poll.creator.id, user.uid);
@@ -144,6 +156,8 @@ export default function PollPage() {
       }
     } catch (err) {
       notify('error', err.message);
+    } finally {
+      setFollowingLoading(false);
     }
   };
 
@@ -153,6 +167,24 @@ export default function PollPage() {
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-3" />
           <p className="text-gray-500">Loading poll...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Permission error: poll exists but user not allowed to read
+  if (permissionError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-md p-6">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">🔒</span>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Sign in to view this poll</h2>
+          <p className="text-gray-500 mb-6">This poll is restricted. Please sign in to continue.</p>
+          <Link to="/login" className="inline-block bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-6 py-2 font-semibold shadow">
+            Sign in
+          </Link>
         </div>
       </div>
     );
@@ -178,6 +210,8 @@ export default function PollPage() {
   const showResults = hasVoted || isExpired || isCreator;
   const typeMeta = TYPE_META[poll.type] || TYPE_META.quick;
   const isMillionPlus = totalVotes >= 1_000_000;
+  const loginRequiredToVote = requiresLoginToVote(poll.creator?.tier || 'free');
+  const votingDisabledBecauseLogin = !user && loginRequiredToVote && !poll.anonymous;
 
   const renderOptions = () => {
     if (poll.type === 'rating') {
@@ -193,13 +227,13 @@ export default function PollPage() {
             {ratings.map(r => (
               <button
                 key={r}
-                disabled={!canVote}
+                disabled={!canVote || votingDisabledBecauseLogin}
                 onClick={() => setSelectedOption(r.toString())}
                 className={`w-12 h-12 rounded-full border-2 transition-all duration-150 ${
                   selectedOption === r.toString()
                     ? 'border-primary bg-gradient-to-r from-primary to-secondary text-white scale-110'
                     : 'border-gray-200 bg-white text-gray-800'
-                } ${canVote ? 'cursor-pointer' : 'cursor-default'} font-bold text-base`}
+                } ${canVote && !votingDisabledBecauseLogin ? 'cursor-pointer' : 'cursor-default'} font-bold text-base`}
               >
                 {r}
               </button>
@@ -226,10 +260,10 @@ export default function PollPage() {
           return (
             <div
               key={opt.id}
-              onClick={() => canVote && setSelectedOption(opt.id)}
+              onClick={() => canVote && !votingDisabledBecauseLogin && setSelectedOption(opt.id)}
               className={`relative rounded-xl border-2 overflow-hidden transition-all ${
                 selected ? 'border-primary bg-primary/5' : 'border-gray-200 bg-white'
-              } ${canVote ? 'cursor-pointer' : 'cursor-default'}`}
+              } ${canVote && !votingDisabledBecauseLogin ? 'cursor-pointer' : 'cursor-default'}`}
             >
               {showResults && (
                 <div
@@ -249,7 +283,7 @@ export default function PollPage() {
                 )}
                 <div className={`flex-1 flex flex-col sm:flex-row sm:items-center justify-between w-full gap-3 ${hasImg ? 'p-4' : ''}`}>
                   <div className="flex items-center gap-3">
-                    {canVote && (
+                    {canVote && !votingDisabledBecauseLogin && (
                       <div
                         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                           selected ? 'border-primary bg-primary' : 'border-gray-300 bg-transparent'
@@ -343,7 +377,7 @@ export default function PollPage() {
             )}
 
             <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between gap-3 mb-5">
-              <Link to={`/user/${poll.creator.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+              <Link to={`/profile/${poll.creator.id}`} className="flex items-center gap-3 flex-1 min-w-0">
                 <CreatorAvatar creator={poll.creator} size={42} />
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-gray-800 flex items-center gap-1 flex-wrap">
@@ -362,13 +396,16 @@ export default function PollPage() {
                 {!isCreator && (
                   <button
                     onClick={handleFollow}
+                    disabled={followingLoading}
                     className={`rounded-full px-4 py-1.5 text-xs font-bold transition ${
                       isFollowingCreator
                         ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-sm'
                         : 'border border-primary text-primary hover:bg-primary/5'
-                    }`}
+                    } ${followingLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    {isFollowingCreator ? '✓ Following' : '+ Follow'}
+                    {followingLoading ? (
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin inline-block mr-1" />
+                    ) : isFollowingCreator ? '✓ Following' : '+ Follow'}
                   </button>
                 )}
                 {isCreator && (
@@ -420,7 +457,15 @@ export default function PollPage() {
               {renderOptions()}
             </div>
 
-            {canVote && (
+            {votingDisabledBecauseLogin && canVote && (
+              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
+                <span className="text-amber-600">🔐</span>
+                <span className="text-sm text-amber-800">You must sign in to vote on this poll.</span>
+                <Link to="/login" className="ml-auto text-primary font-semibold text-sm">Sign in</Link>
+              </div>
+            )}
+
+            {canVote && !votingDisabledBecauseLogin && (
               <button
                 onClick={handleVote}
                 disabled={!selectedOption || voting}

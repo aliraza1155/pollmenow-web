@@ -1,4 +1,3 @@
-// src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -21,6 +20,7 @@ import SearchPage from './pages/SearchPage';
 import ExplorePage from './pages/ExplorePage';
 import TeamManagementPage from './pages/TeamManagementPage';
 import UpgradePage from './pages/UpgradePage';
+import NotificationsPage from './pages/NotificationsPage';   // <-- NEW
 // New pages
 import FAQ from './pages/FAQ';
 import Blog from './pages/Blog';
@@ -80,6 +80,9 @@ function AppRoutes() {
         <Route path="/affiliates" element={<PageWrapper><Affiliates /></PageWrapper>} />
         <Route path="/cookies" element={<PageWrapper><CookiePolicy /></PageWrapper>} />
         <Route path="/gdpr" element={<PageWrapper><GDPR /></PageWrapper>} />
+
+        {/* Notifications page (protected) */}
+        <Route path="/notifications" element={<ProtectedRoute><PageWrapper><NotificationsPage /></PageWrapper></ProtectedRoute>} />
 
         {/* Protected routes */}
         <Route path="/create" element={<ProtectedRoute><PageWrapper><CreatePollPage /></PageWrapper></ProtectedRoute>} />

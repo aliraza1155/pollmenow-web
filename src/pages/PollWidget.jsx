@@ -2,9 +2,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { X, Check, Share2, Copy, ExternalLink } from 'lucide-react';
+import { submitVote, hasUserVoted } from '../lib/vote';
+import { X, Check, Share2, ExternalLink } from 'lucide-react';
 
 export default function PollWidget() {
   const { id } = useParams();
@@ -36,13 +37,19 @@ export default function PollWidget() {
     return () => unsubscribe();
   }, [id]);
 
-  // Check if already voted via localStorage
+  // Check if already voted
   useEffect(() => {
     if (poll && !voted) {
-      const votedKey = `voted_${id}`;
-      if (localStorage.getItem(votedKey)) {
-        setVoted(true);
-      }
+      const checkVoted = async () => {
+        try {
+          // Anonymous check (deviceId) – no user logged in, only device fingerprint
+          const already = await hasUserVoted(poll.id, undefined, true);
+          setVoted(already);
+        } catch (err) {
+          console.error('Vote check error:', err);
+        }
+      };
+      checkVoted();
     }
   }, [poll, id, voted]);
 
@@ -51,24 +58,22 @@ export default function PollWidget() {
       setError('Please select an option');
       return;
     }
-    const votedKey = `voted_${id}`;
-    if (localStorage.getItem(votedKey)) {
-      setError('You have already voted in this poll');
-      return;
-    }
     setSubmitting(true);
     setError('');
     try {
-      const pollRef = doc(db, 'polls', id);
-      await updateDoc(pollRef, {
-        [`options.${selectedOption}.votes`]: increment(1),
-        totalVotes: increment(1),
-      });
-      localStorage.setItem(votedKey, 'true');
+      // Use the proper vote submission logic (supports anonymous voting)
+      await submitVote(
+        poll.id,
+        selectedOption.toString(), // option id (index as string)
+        null,                      // no logged‑in user
+        true,                      // vote anonymously (device-based)
+        undefined,                 // no access code for widget
+        poll.creator?.tier || 'free'
+      );
       setVoted(true);
     } catch (err) {
       console.error(err);
-      setError('Vote failed. Please try again.');
+      setError(err.message || 'Vote failed. Please try again.');
     } finally {
       setSubmitting(false);
     }

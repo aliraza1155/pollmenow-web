@@ -1,4 +1,5 @@
 // src/lib/constants.js
+
 export const CATEGORIES = [
   { id: 'general', name: 'General' },
   { id: 'sports', name: 'Sports' },
@@ -54,6 +55,126 @@ export const NOTIFICATION_TEMPLATES = {
   follower_added: { title: 'New Follower', message: '{username} started following you.' }
 };
 
-export const BADGES = [ /* keep as is */ ];
-export const SUBSCRIPTION_PLANS = [ /* keep as is */ ];
-export const STRIPE_CONFIG = { /* keep as is */ };
+// ========== BADGES (Achievements & Tiers) ==========
+export const BADGES = [
+  {
+    id: 'first_poll',
+    name: 'First Poll',
+    description: 'Created your first poll',
+    icon: '🎯',
+    color: '#6ef3ff',
+    criteria: { type: 'polls_created', threshold: 1 }
+  },
+  {
+    id: 'popular_poll',
+    name: 'Popular',
+    description: 'Poll reached 100 votes',
+    icon: '🔥',
+    color: '#ff6b6b',
+    criteria: { type: 'votes_received', threshold: 100 }
+  },
+  {
+    id: 'viral_poll',
+    name: 'Viral',
+    description: 'Poll reached 1,000 votes',
+    icon: '🚀',
+    color: '#ffcc00',
+    criteria: { type: 'votes_received', threshold: 1000 }
+  },
+  {
+    id: 'influencer',
+    name: 'Influencer',
+    description: 'Gained 100 followers',
+    icon: '🌟',
+    color: '#ff5cd7',
+    criteria: { type: 'followers', threshold: 100 }
+  },
+  {
+    id: 'premium_member',
+    name: 'Premium Member',
+    description: 'Upgraded to Premium tier',
+    icon: '💎',
+    color: '#6ef3ff',
+    criteria: { type: 'premium', threshold: 1 }
+  },
+  {
+    id: 'milestone_10k',
+    name: '10K Club',
+    description: 'Poll reached 10,000 votes',
+    icon: '🏆',
+    color: '#ffcc00',
+    criteria: { type: 'milestone', threshold: 10000 }
+  }
+];
+
+// ========== SUBSCRIPTION PLANS (for frontend display) ==========
+export const SUBSCRIPTION_PLANS = [
+  {
+    id: 'premium_monthly',
+    name: 'Premium Monthly',
+    price: 9.99,
+    currency: 'USD',
+    interval: 'month',
+    features: [
+      'Unlimited polls',
+      'Advanced poll types',
+      'No login required for voters',
+      'Advanced analytics',
+      'Priority support',
+      'Custom branding'
+    ],
+    tier: 'premium'
+  },
+  {
+    id: 'premium_yearly',
+    name: 'Premium Yearly',
+    price: 99.99,
+    currency: 'USD',
+    interval: 'year',
+    features: [
+      'All monthly features',
+      '20% discount',
+      'Early access to new features',
+      'Dedicated account manager'
+    ],
+    tier: 'premium'
+  },
+  {
+    id: 'organization_monthly',
+    name: 'Organization Monthly',
+    price: 29.99,
+    currency: 'USD',
+    interval: 'month',
+    features: [
+      'All Premium features',
+      'Team management',
+      'Advanced targeting',
+      'Organization branding',
+      'Priority placement',
+      'Custom domain'
+    ],
+    tier: 'organization'
+  },
+  {
+    id: 'organization_yearly',
+    name: 'Organization Yearly',
+    price: 299.99,
+    currency: 'USD',
+    interval: 'year',
+    features: [
+      'All organization monthly features',
+      '25% discount',
+      'White-label options',
+      'API access',
+      'Custom integrations'
+    ],
+    tier: 'organization'
+  }
+];
+
+// ========== STRIPE CONFIGURATION (for frontend display) ==========
+// Your actual Stripe publishable key should be set in .env (VITE_STRIPE_PUBLISHABLE_KEY)
+// This is only a fallback for display purposes, not used for actual payment calls.
+export const STRIPE_CONFIG = {
+  publishableKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_51TGzRVJ0zlIl3GaRoKq2gV3Y1NczwakXAaaOl5LaOl7wXllTuITkImA0nUBw6zo3n25LLbzN61UDXHbBdgXK9PSI00mFBHud95'
+};

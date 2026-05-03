@@ -1,10 +1,11 @@
-// src/components/Navbar.jsx
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart3, Menu, X, User, LogOut, LayoutDashboard, PlusCircle, Search } from 'lucide-react';
+import { BarChart3, Menu, X, User, LogOut, LayoutDashboard, PlusCircle, Search, Bell, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export default function Navbar() {
   const { user } = useAuth();
@@ -12,12 +13,31 @@ export default function Navbar() {
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
+  // Scroll effect
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handler);
     return () => window.removeEventListener('scroll', handler);
   }, []);
+
+  // Real‑time unread notifications count
+  useEffect(() => {
+    if (!user) {
+      setUnreadCount(0);
+      return;
+    }
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      where('read', '==', false)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUnreadCount(snapshot.size);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -38,6 +58,9 @@ export default function Navbar() {
   const isActive = (path, exact = false) => {
     return exact ? location.pathname === path : location.pathname.startsWith(path);
   };
+
+  // Check if user has organization tier (can access team management)
+  const isOrganization = user?.type === 'organization';
 
   return (
     <motion.nav
@@ -79,10 +102,20 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* Desktop Auth Buttons */}
+        {/* Desktop Auth Buttons + Notification Bell */}
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <>
+              {/* Notification Bell */}
+              <Link to="/notifications" className="relative p-2 rounded-lg text-gray-600 hover:text-primary hover:bg-gray-50 transition">
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </Link>
+
               <Link
                 to="/dashboard"
                 className="p-2 rounded-lg text-gray-600 hover:text-primary hover:bg-gray-50 transition"
@@ -109,6 +142,12 @@ export default function Navbar() {
                   <Link to={`/profile/${user.uid}`} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                     <User size={14} /> Profile
                   </Link>
+                  {/* Team Management link – only for organization tier */}
+                  {isOrganization && (
+                    <Link to="/team" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                      <Users size={14} /> Team Management
+                    </Link>
+                  )}
                   <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-gray-50 w-full text-left">
                     <LogOut size={14} /> Logout
                   </button>
@@ -151,6 +190,24 @@ export default function Navbar() {
             className="md:hidden border-t border-gray-100 bg-white shadow-lg overflow-hidden"
           >
             <div className="container mx-auto px-4 py-4 flex flex-col gap-2">
+              {/* Notification Bell for mobile */}
+              {user && (
+                <Link
+                  to="/notifications"
+                  className="flex items-center justify-between px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <Bell size={18} />
+                    Notifications
+                  </span>
+                  {unreadCount > 0 && (
+                    <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                      {unreadCount}
+                    </span>
+                  )}
+                </Link>
+              )}
+
               {navLinks.map((link) => (
                 <Link
                   key={link.label}
@@ -185,6 +242,15 @@ export default function Navbar() {
                   >
                     <User size={18} /> Profile
                   </Link>
+                  {/* Team Management link – only for organization tier */}
+                  {isOrganization && (
+                    <Link
+                      to="/team"
+                      className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <Users size={18} /> Team Management
+                    </Link>
+                  )}
                   <button
                     onClick={handleLogout}
                     className="px-3 py-2.5 rounded-lg text-red-600 hover:bg-gray-50 text-left flex items-center gap-2"

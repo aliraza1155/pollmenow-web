@@ -261,7 +261,13 @@ export default function ExplorePage() {
     const fetchPotd = async () => {
       try {
         const today = new Date().toISOString().slice(0, 10);
-        const q = query(collection(db, 'polls'), where('isPollOfTheDay', '==', true), where('pollOfTheDayDate', '==', today), limit(1));
+        const q = query(
+  collection(db, 'polls'),
+  where('isPollOfTheDay', '==', true),
+  where('pollOfTheDayDate', '==', today),
+  where('visibility', '==', 'public'),   // <-- add this line
+  limit(1)
+);
         const snap = await getDocs(q);
         if (!snap.empty) {
           const poll = processDoc(snap.docs[0]);

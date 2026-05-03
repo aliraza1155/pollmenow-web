@@ -1,60 +1,155 @@
 // src/pages/SearchPage.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, limit, startAfter, getCountFromServer } from 'firebase/firestore';
 import { useDebounce } from '../hooks/useDebounce';
-import { toDate, formatDate } from '../lib/utils';
-import { Button, Card, VerifiedBadge, PremiumBadge } from '../components/UI';
+import { VerifiedBadge, PremiumBadge } from '../components/UI';
 
 const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', targeted:'🎯', live:'🔴' };
 const TRENDING_TAGS = ['remote work', 'AI tools', 'sports', 'technology', 'politics', 'food'];
+const POLLS_PER_PAGE = 20;
 
-export function SearchPage() {
+function extractKeywords(text) {
+  return text.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+}
+
+export default function SearchPage() {
   const [term, setTerm] = useState('');
   const [polls, setPolls] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('all');
+  const [pollLastDoc, setPollLastDoc] = useState(null);
+  const [hasMorePolls, setHasMorePolls] = useState(true);
+  const [pollLoadingMore, setPollLoadingMore] = useState(false);
   const debounced = useDebounce(term, 450);
+  const loadMoreRef = useRef(null);
 
+  // Reset pagination when search term changes
+  useEffect(() => {
+    setPolls([]);
+    setPollLastDoc(null);
+    setHasMorePolls(true);
+    setUsers([]);
+  }, [debounced]);
+
+  // Search polls using array-contains-any
+  const searchPolls = useCallback(async (loadMore = false) => {
+    if (!debounced.trim()) return;
+    if (loadMore && (!hasMorePolls || pollLoadingMore)) return;
+
+    setLoading(true);
+    if (loadMore) setPollLoadingMore(true);
+    else setLoading(true);
+
+    try {
+      const keywords = extractKeywords(debounced);
+      // Firestore allows max 10 terms in array-contains-any – take first 10
+      const searchTerms = keywords.slice(0, 10);
+      if (searchTerms.length === 0) {
+        setPolls([]);
+        setHasMorePolls(false);
+        return;
+      }
+
+      let q = query(
+        collection(db, 'polls'),
+        where('visibility', '==', 'public'),
+        where('searchKeywords', 'array-contains-any', searchTerms),
+        orderBy('totalVotes', 'desc'),
+        limit(POLLS_PER_PAGE)
+      );
+      if (loadMore && pollLastDoc) {
+        q = query(q, startAfter(pollLastDoc));
+      }
+
+      const snapshot = await getDocs(q);
+      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      if (loadMore) {
+        setPolls(prev => [...prev, ...results]);
+      } else {
+        setPolls(results);
+      }
+
+      const lastVisible = snapshot.docs[snapshot.docs.length - 1];
+      setPollLastDoc(lastVisible);
+      setHasMorePolls(snapshot.docs.length === POLLS_PER_PAGE);
+    } catch (err) {
+      console.error('Poll search error:', err);
+    } finally {
+      setLoading(false);
+      if (loadMore) setPollLoadingMore(false);
+      else setLoading(false);
+    }
+  }, [debounced, pollLastDoc, hasMorePolls, pollLoadingMore]);
+
+  // Trigger search when term changes (first page)
+  useEffect(() => {
+    if (debounced.trim()) {
+      searchPolls(false);
+    } else {
+      setPolls([]);
+      setUsers([]);
+    }
+  }, [debounced, searchPolls]);
+
+  // Search users by username/name (prefix queries)
   useEffect(() => {
     if (!debounced.trim()) {
-      setPolls([]);
       setUsers([]);
       return;
     }
-    const search = async () => {
-      setLoading(true);
+    const searchUsers = async () => {
       try {
-        const pollsSnap = await getDocs(
-          query(collection(db, 'polls'), where('visibility', '==', 'public'), orderBy('totalVotes', 'desc'), limit(30))
+        const lowerTerm = debounced.toLowerCase();
+        // First try username prefix
+        let q = query(
+          collection(db, 'users'),
+          where('username', '>=', lowerTerm),
+          where('username', '<=', lowerTerm + '\uf8ff'),
+          limit(30)
         );
-        const lower = debounced.toLowerCase();
-        const filteredPolls = pollsSnap.docs
-          .map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
-          .filter(
-            p =>
-              p.question?.toLowerCase().includes(lower) ||
-              (p.tags || []).some(t => t.includes(lower)) ||
-              p.category?.includes(lower)
-          );
-        setPolls(filteredPolls);
+        let snap = await getDocs(q);
+        let userResults = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
 
-        const usersSnap = await getDocs(query(collection(db, 'users'), orderBy('name'), limit(30)));
-        const filteredUsers = usersSnap.docs
-          .map(d => ({ uid: d.id, ...d.data() }))
-          .filter(u => u.username?.toLowerCase().includes(lower) || u.name?.toLowerCase().includes(lower));
-        setUsers(filteredUsers);
+        // If not enough, also search by name (requires index)
+        if (userResults.length < 30) {
+          const nameQuery = query(
+            collection(db, 'users'),
+            where('name', '>=', lowerTerm),
+            where('name', '<=', lowerTerm + '\uf8ff'),
+            limit(30 - userResults.length)
+          );
+          const nameSnap = await getDocs(nameQuery);
+          const nameUsers = nameSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+          // Merge and deduplicate
+          userResults = [...userResults, ...nameUsers].filter((v, i, a) => a.findIndex(t => t.uid === v.uid) === i);
+        }
+        setUsers(userResults);
       } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+        console.error('User search error:', err);
       }
     };
-    search();
+    searchUsers();
   }, [debounced]);
+
+  // Intersection observer for infinite scroll (load more polls)
+  useEffect(() => {
+    if (!hasMorePolls || !debounced.trim() || loading || pollLoadingMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMorePolls && !pollLoadingMore && !loading) {
+          searchPolls(true);
+        }
+      },
+      { threshold: 0.5 }
+    );
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMorePolls, debounced, loading, pollLoadingMore, searchPolls]);
 
   const shownPolls = tab === 'people' ? [] : polls;
   const shownUsers = tab === 'polls' ? [] : users;
@@ -112,7 +207,7 @@ export function SearchPage() {
         </div>
 
         {/* Results */}
-        {loading ? (
+        {loading && polls.length === 0 ? (
           <div className="flex justify-center items-center py-16">
             <div className="w-8 h-8 border-3 border-gray-200 border-t-primary rounded-full animate-spin" />
             <span className="ml-3 text-gray-500">Searching...</span>
@@ -169,9 +264,7 @@ export function SearchPage() {
                           {u.followersCount || 0} followers · {u.pollsCreated || 0} polls
                         </p>
                       </div>
-                      <span className="text-xs font-semibold text-primary opacity-0 group-hover:opacity-100 transition">
-                        View →
-                      </span>
+                      <span className="text-xs font-semibold text-primary opacity-0 group-hover:opacity-100 transition">View →</span>
                     </Link>
                   ))}
                 </div>
@@ -202,18 +295,25 @@ export function SearchPage() {
                           </div>
                         </div>
                         <div className="flex-shrink-0">
-                          <span className="text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full">
-                            Vote →
-                          </span>
+                          <span className="text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full">Vote →</span>
                         </div>
                       </div>
                     </Link>
                   ))}
                 </div>
+                {/* Infinite scroll trigger */}
+                {hasMorePolls && (
+                  <div ref={loadMoreRef} className="flex justify-center py-4">
+                    {pollLoadingMore && <div className="w-6 h-6 border-2 border-gray-200 border-t-primary rounded-full animate-spin" />}
+                  </div>
+                )}
+                {!hasMorePolls && polls.length > 0 && (
+                  <p className="text-center text-gray-400 text-sm mt-4">No more polls to load</p>
+                )}
               </div>
             )}
 
-            {shownPolls.length === 0 && shownUsers.length === 0 && (
+            {shownPolls.length === 0 && shownUsers.length === 0 && !loading && (
               <div className="text-center py-16 bg-white rounded-xl border border-gray-100">
                 <p className="text-5xl mb-3">🤷</p>
                 <p className="text-gray-700 font-semibold">No results for "{debounced}"</p>
@@ -231,5 +331,3 @@ export function SearchPage() {
     </div>
   );
 }
-
-export default SearchPage;

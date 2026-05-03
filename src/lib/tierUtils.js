@@ -37,7 +37,7 @@ export const TIER_LIMITS = {
     features: ['All Free features', '10 polls per month', 'Verified badge', 'Higher search placement']
   },
   premium: {
-    maxPollsPerMonth: 15,      // ← changed from Infinity to 15
+    maxPollsPerMonth: 15,
     maxOptionsPerPoll: 10,
     allowedPollTypes: ['quick', 'rating', 'yesno', 'comparison', 'live'],
     allowedVisibility: ['public', 'friends', 'private'],
@@ -72,15 +72,42 @@ export const TIER_LIMITS = {
   }
 };
 
-// All helper functions remain the same
-export function canCreatePollType(tier, pollType) { return TIER_LIMITS[tier].allowedPollTypes.includes(pollType); }
-export function canUseVisibility(tier, visibility) { return TIER_LIMITS[tier].allowedVisibility.includes(visibility); }
-export function getMaxOptions(tier) { return TIER_LIMITS[tier].maxOptionsPerPoll; }
-export function getMonthlyPollLimit(tier) { return TIER_LIMITS[tier].maxPollsPerMonth; }
-export function requiresLoginToVote(tier) { return TIER_LIMITS[tier].requiresLoginToVote; }
-export function hasPremiumAnalytics(tier) { return TIER_LIMITS[tier].analyticsLevel === 'premium'; }
-export function hasTeamManagement(tier) { return TIER_LIMITS[tier].teamManagement; }
-export function hasTargeting(tier) { return TIER_LIMITS[tier].targeting; }
-export function canUseAIFeatures(tier) { return TIER_LIMITS[tier].aiFeatures; }
-export function canUseAIPollGeneration(tier) { return TIER_LIMITS[tier].aiPollGeneration; }
-export function canUseAIRephrasing(tier) { return TIER_LIMITS[tier].aiRephrasing; }
+// Safe helper to get limits for a tier (fallback to free)
+function getLimits(tier) {
+  return TIER_LIMITS[tier] || TIER_LIMITS.free;
+}
+
+// All helper functions now use getLimits()
+export function canCreatePollType(tier, pollType) { 
+  return getLimits(tier).allowedPollTypes.includes(pollType); 
+}
+export function canUseVisibility(tier, visibility) { 
+  return getLimits(tier).allowedVisibility.includes(visibility); 
+}
+export function getMaxOptions(tier) { 
+  return getLimits(tier).maxOptionsPerPoll; 
+}
+export function getMonthlyPollLimit(tier) { 
+  return getLimits(tier).maxPollsPerMonth; 
+}
+export function requiresLoginToVote(tier) { 
+  return getLimits(tier).requiresLoginToVote; 
+}
+export function hasPremiumAnalytics(tier) { 
+  return getLimits(tier).analyticsLevel === 'premium'; 
+}
+export function hasTeamManagement(tier) { 
+  return getLimits(tier).teamManagement; 
+}
+export function hasTargeting(tier) { 
+  return getLimits(tier).targeting; 
+}
+export function canUseAIFeatures(tier) { 
+  return getLimits(tier).aiFeatures; 
+}
+export function canUseAIPollGeneration(tier) { 
+  return getLimits(tier).aiPollGeneration; 
+}
+export function canUseAIRephrasing(tier) { 
+  return getLimits(tier).aiRephrasing; 
+}

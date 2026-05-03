@@ -16,9 +16,21 @@ export function usePoll(pollId) {
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
+          // Ensure creator object has a default tier
+          const creator = data.creator || {};
+          const safeCreator = {
+            id: creator.id || '',
+            name: creator.name || 'Anonymous',
+            username: creator.username,
+            type: creator.type || 'individual',
+            verified: creator.verified || false,
+            profileImage: creator.profileImage,
+            tier: creator.tier || 'free',   // ← default tier
+          };
           setPoll({
             id: docSnap.id,
             ...data,
+            creator: safeCreator,
             options: convertOptionsToArray(data.options),
             createdAt: toDate(data.createdAt),
             endsAt: toDate(data.endsAt),
