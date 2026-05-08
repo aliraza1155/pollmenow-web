@@ -1,14 +1,18 @@
+// src/components/Navbar.jsx
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart3, Menu, X, User, LogOut, LayoutDashboard, PlusCircle, Search, Bell, Users } from 'lucide-react';
+import { BarChart3, Menu, X, User, LogOut, LayoutDashboard, PlusCircle, Search, Bell, Users, Crown } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
+import AccountSwitcher from './AccountSwitcher';
 import { auth } from '../lib/firebase';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export default function Navbar() {
   const { user } = useAuth();
+  const { organizations } = useAccount(); // get organization list
   const navigate = useNavigate();
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
@@ -59,8 +63,7 @@ export default function Navbar() {
     return exact ? location.pathname === path : location.pathname.startsWith(path);
   };
 
-  // Check if user has organization tier (can access team management)
-  const isOrganization = user?.type === 'organization';
+  const hasOrganizations = organizations && organizations.length > 0;
 
   return (
     <motion.nav
@@ -102,10 +105,13 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* Desktop Auth Buttons + Notification Bell */}
+        {/* Desktop Auth Buttons + Account Switcher + Notification Bell */}
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <>
+              {/* Account Switcher – only if user belongs to any organization */}
+              {hasOrganizations && <AccountSwitcher />}
+
               {/* Notification Bell */}
               <Link to="/notifications" className="relative p-2 rounded-lg text-gray-600 hover:text-primary hover:bg-gray-50 transition">
                 <Bell size={18} />
@@ -142,8 +148,8 @@ export default function Navbar() {
                   <Link to={`/profile/${user.uid}`} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                     <User size={14} /> Profile
                   </Link>
-                  {/* Team Management link – only for organization tier */}
-                  {isOrganization && (
+                  {/* Team Management – show if active account is an organization OR user has any org */}
+                  {hasOrganizations && (
                     <Link to="/team" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                       <Users size={14} /> Team Management
                     </Link>
@@ -190,6 +196,13 @@ export default function Navbar() {
             className="md:hidden border-t border-gray-100 bg-white shadow-lg overflow-hidden"
           >
             <div className="container mx-auto px-4 py-4 flex flex-col gap-2">
+              {/* Account Switcher on mobile (if applicable) */}
+              {hasOrganizations && (
+                <div className="px-3 py-2">
+                  <AccountSwitcher />
+                </div>
+              )}
+
               {/* Notification Bell for mobile */}
               {user && (
                 <Link
@@ -242,8 +255,7 @@ export default function Navbar() {
                   >
                     <User size={18} /> Profile
                   </Link>
-                  {/* Team Management link – only for organization tier */}
-                  {isOrganization && (
+                  {hasOrganizations && (
                     <Link
                       to="/team"
                       className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center gap-2"
