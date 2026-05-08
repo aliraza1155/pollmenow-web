@@ -1,15 +1,17 @@
-// src/pages/DashboardPage.jsx – Fully Responsive, same visual style
+// src/pages/DashboardPage.jsx – Fully Responsive, with organization support
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, getDocs, doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { getUserVotes } from '../lib/vote';
 import { getMonthlyPollLimit, hasPremiumAnalytics } from '../lib/tierUtils';
 import { getPollAnalytics } from '../lib/analytics';
 import { formatDate, toDate } from '../lib/utils';
+import { canEditPoll } from '../lib/permissions';
 
-const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', targeted:'🎯', live:'🔴' };
+const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', live:'🔴' };
 
 function StatCard({ icon, value, label, sub, color = '#6C5CE7' }) {
   return (
@@ -44,12 +46,13 @@ function SimpleBarChart({ data, xKey, yKey, color = '#6C5CE7' }) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { activeAccount, organizations } = useAccount();
   const navigate = useNavigate();
 
   const [myPolls, setMyPolls] = useState([]);
   const [votes, setVotes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('polls'); // polls | votes | analytics
+  const [tab, setTab] = useState('polls');
   const [deleting, setDeleting] = useState(null);
   const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -67,13 +70,36 @@ export default function DashboardPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Load basic data
+  // Determine org name for display
+  const activeOrg = activeAccount !== 'personal' ? organizations.find(o => o.id === activeAccount) : null;
+  const contextName = activeAccount === 'personal' ? 'Personal' : (activeOrg?.name || 'Organization');
+
+  // Load polls based on active account
   useEffect(() => {
     if (!user) return;
     const load = async () => {
+      setLoading(true);
       try {
-        const pollsSnap = await getDocs(query(collection(db, 'polls'), where('creator.id','==',user.uid), orderBy('createdAt','desc')));
-        setMyPolls(pollsSnap.docs.map(d => {
+        let pollsQuery;
+        if (activeAccount === 'personal') {
+          // Personal polls: created by the user and context type is 'personal' (or no context for older polls)
+          pollsQuery = query(
+            collection(db, 'polls'),
+            where('creator.id', '==', user.uid),
+            where('context.type', '==', 'personal'),
+            orderBy('createdAt', 'desc')
+          );
+        } else {
+          // Organization polls: context type is 'organization' and matches the orgId
+          pollsQuery = query(
+            collection(db, 'polls'),
+            where('context.type', '==', 'organization'),
+            where('context.orgId', '==', activeAccount),
+            orderBy('createdAt', 'desc')
+          );
+        }
+        const pollsSnap = await getDocs(pollsQuery);
+        const pollsData = pollsSnap.docs.map(d => {
           const data = d.data();
           return {
             id: d.id,
@@ -85,10 +111,10 @@ export default function DashboardPage() {
             endsAt: data.endsAt ? toDate(data.endsAt) : null,
             meta: data.meta || {},
             accessCode: data.accessCode,
+            context: data.context || { type: 'personal' },
           };
-        }));
-        const userVotes = await getUserVotes(user.uid).catch(() => []);
-        setVotes(userVotes);
+        });
+        setMyPolls(pollsData);
       } catch (err) {
         console.error(err);
       } finally {
@@ -96,21 +122,27 @@ export default function DashboardPage() {
       }
     };
     load();
+  }, [user, activeAccount]);
+
+  // Load votes (always personal)
+  useEffect(() => {
+    if (!user) return;
+    getUserVotes(user.uid).then(setVotes).catch(() => setVotes([]));
   }, [user]);
 
-  // Load analytics when tab changes
+  // Load analytics for the active account's polls
   useEffect(() => {
     if (!user || tab !== 'analytics') return;
     const loadAnalytics = async () => {
       try {
-        const pollsSnap = await getDocs(query(collection(db, 'polls'), where('creator.id','==',user.uid), orderBy('createdAt','desc')));
-        const pollsList = pollsSnap.docs.map(doc => ({
-          id: doc.id,
-          question: doc.data().question,
-          type: doc.data().type,
-          endsAt: doc.data().endsAt ? toDate(doc.data().endsAt) : null,
-          meta: doc.data().meta || {},
-        }));
+        let pollsList = [];
+        if (activeAccount === 'personal') {
+          const snap = await getDocs(query(collection(db, 'polls'), where('creator.id', '==', user.uid), where('context.type', '==', 'personal')));
+          pollsList = snap.docs.map(doc => ({ id: doc.id, question: doc.data().question, type: doc.data().type, endsAt: toDate(doc.data().endsAt), meta: doc.data().meta || {} }));
+        } else {
+          const snap = await getDocs(query(collection(db, 'polls'), where('context.type', '==', 'organization'), where('context.orgId', '==', activeAccount)));
+          pollsList = snap.docs.map(doc => ({ id: doc.id, question: doc.data().question, type: doc.data().type, endsAt: toDate(doc.data().endsAt), meta: doc.data().meta || {} }));
+        }
         setAllPolls(pollsList);
 
         const analyticsMap = {};
@@ -136,7 +168,7 @@ export default function DashboardPage() {
       }
     };
     loadAnalytics();
-  }, [user, tab]);
+  }, [user, tab, activeAccount]);
 
   async function loadTrendData(pollsList, analyticsMap) {
     const dailyVotes = {};
@@ -184,7 +216,11 @@ export default function DashboardPage() {
     });
   }
 
-  const handleDelete = async (pollId) => {
+  const handleDelete = async (pollId, poll) => {
+    if (!canEditPoll(user, poll)) {
+      showToast('error', 'You do not have permission to delete this poll.');
+      return;
+    }
     if (!window.confirm('Delete this poll? This cannot be undone.')) return;
     setDeleting(pollId);
     try {
@@ -239,39 +275,32 @@ export default function DashboardPage() {
   });
 
   const tabs = [
-    { key: 'polls', label: `My Polls (${myPolls.length})`, icon: '🗳' },
+    { key: 'polls', label: `${contextName} Polls (${myPolls.length})`, icon: '🗳' },
     { key: 'votes', label: `My Votes (${votes.length})`, icon: '✅' },
     { key: 'analytics', label: 'Analytics', icon: '📊' },
   ];
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Toast */}
       {toast && (
         <div className="fixed top-20 right-4 z-50 max-w-sm w-full animate-fade-in">
-          <div className={`rounded-xl px-4 py-3 shadow-lg ${
-            toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'
-          }`}>
+          <div className={`rounded-xl px-4 py-3 shadow-lg ${toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
             {toast.msg}
           </div>
         </div>
       )}
 
       <div className="container mx-auto px-4 py-6 lg:py-8 max-w-7xl">
-        {/* Desktop layout: grid with sidebar */}
         <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8">
           {/* Sidebar (desktop) */}
           <aside className="hidden lg:block">
-            {/* User card */}
             <div className="bg-white rounded-xl border border-gray-100 p-5 text-center mb-4 shadow-sm">
               <div className="w-16 h-16 rounded-full bg-gradient-to-r from-primary to-secondary mx-auto flex items-center justify-center text-white text-2xl font-bold overflow-hidden mb-3">
                 {user.profileImage ? <img src={user.profileImage} alt="" className="w-full h-full object-cover" /> : (user.name?.[0] || 'U').toUpperCase()}
               </div>
               <p className="font-bold text-gray-800">{user.name}</p>
               <p className="text-xs text-gray-400">@{user.username || 'user'}</p>
-              <span className={`inline-block mt-2 text-xs font-bold px-3 py-1 rounded-full ${
-                user.tier === 'premium' || user.tier === 'organization' ? 'bg-gradient-to-r from-primary to-secondary text-white' : 'bg-gray-100 text-gray-500'
-              }`}>
+              <span className={`inline-block mt-2 text-xs font-bold px-3 py-1 rounded-full ${user.tier === 'premium' || user.tier === 'organization' ? 'bg-gradient-to-r from-primary to-secondary text-white' : 'bg-gray-100 text-gray-500'}`}>
                 {(user.tier || 'free').charAt(0).toUpperCase() + (user.tier || 'free').slice(1)}
               </span>
             </div>
@@ -282,9 +311,7 @@ export default function DashboardPage() {
                 <button
                   key={item.key}
                   onClick={() => setTab(item.key)}
-                  className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors mb-1 ${
-                    tab === item.key ? 'bg-primary/10 text-primary' : 'text-gray-600 hover:bg-gray-50'
-                  }`}
+                  className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors mb-1 ${tab === item.key ? 'bg-primary/10 text-primary' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                   <span className="text-base">{item.icon}</span>
                   {item.label}
@@ -315,7 +342,7 @@ export default function DashboardPage() {
 
           {/* Main content */}
           <div>
-            {/* Mobile header: user summary + tabs as chips */}
+            {/* Mobile header */}
             <div className="lg:hidden mb-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white text-lg font-bold overflow-hidden">
@@ -326,7 +353,6 @@ export default function DashboardPage() {
                   <p className="text-xs text-gray-400">@{user.username || 'user'}</p>
                 </div>
               </div>
-              {/* Usage bar mobile */}
               <div className="bg-white rounded-xl border border-gray-100 p-3 mb-4 shadow-sm">
                 <div className="flex justify-between text-xs text-gray-500 mb-1">
                   <span>Monthly polls: {user.pollsThisMonth || 0} / {monthlyLimit === Infinity ? '∞' : monthlyLimit}</span>
@@ -336,15 +362,12 @@ export default function DashboardPage() {
                   <div className="h-full rounded-full" style={{ width: `${usagePct}%`, background: usagePct >= 90 ? '#ef4444' : 'linear-gradient(90deg,#6C5CE7,#a855f7)' }} />
                 </div>
               </div>
-              {/* Tabs as scrollable chips */}
               <div className="flex gap-2 overflow-x-auto pb-2">
                 {tabs.map(item => (
                   <button
                     key={item.key}
                     onClick={() => setTab(item.key)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                      tab === item.key ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${tab === item.key ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
                   >
                     <span>{item.icon}</span>
                     {item.label}
@@ -358,17 +381,20 @@ export default function DashboardPage() {
               <div>
                 <h1 className="text-2xl font-extrabold text-gray-900">Dashboard</h1>
                 <p className="text-sm text-gray-500">Welcome back, {user.name?.split(' ')[0] || 'there'}! 👋</p>
+                {activeAccount !== 'personal' && activeOrg && (
+                  <p className="text-xs text-primary mt-1">Currently viewing <strong>{activeOrg.name}</strong> (organization)</p>
+                )}
               </div>
               <Link to="/create" className="bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-4 py-2 text-sm font-bold shadow hover:shadow-md transition flex items-center gap-1">
                 + Create Poll
               </Link>
             </div>
 
-            {/* Stats cards (except analytics tab) */}
+            {/* Stats cards */}
             {tab !== 'analytics' && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                 <StatCard icon="🗳" value={myPolls.length} label="Polls created" sub="All time" />
-                <StatCard icon="📊" value={totalVotesOnMyPolls.toLocaleString()} label="Votes received" sub="Across all polls" />
+                <StatCard icon="📊" value={totalVotesOnMyPolls.toLocaleString()} label="Votes received" sub="Across this context" />
                 <StatCard icon="✅" value={votes.length} label="Votes cast" sub="By you" />
                 <StatCard icon="📅" value={pollsLeft} label="Polls left" sub="This month" color={typeof pollsLeft === 'number' && pollsLeft <= 1 ? '#ef4444' : '#6C5CE7'} />
               </div>
@@ -382,9 +408,7 @@ export default function DashboardPage() {
                     <button
                       key={f}
                       onClick={() => setFilter(f)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition whitespace-nowrap ${
-                        filter === f ? 'bg-gradient-to-r from-primary to-secondary text-white border-transparent shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                      }`}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition whitespace-nowrap ${filter === f ? 'bg-gradient-to-r from-primary to-secondary text-white border-transparent shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
                       {f.charAt(0).toUpperCase() + f.slice(1)}
                     </button>
@@ -393,13 +417,14 @@ export default function DashboardPage() {
                 {filteredPolls.length === 0 ? (
                   <div className="text-center py-16 bg-white rounded-xl border border-gray-100">
                     <p className="text-5xl mb-3">🗳</p>
-                    <p className="font-semibold text-gray-600 mb-4">No polls yet</p>
+                    <p className="font-semibold text-gray-600 mb-4">No polls in this context</p>
                     <Link to="/create" className="bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-5 py-2 text-sm font-bold shadow">Create your first poll</Link>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {filteredPolls.map(poll => {
                       const isActive = !poll.endsAt || new Date(poll.endsAt) > new Date();
+                      const canDelete = canEditPoll(user, poll);
                       return (
                         <div key={poll.id} className="bg-white rounded-xl border border-gray-100 p-4 flex flex-wrap items-center gap-3 transition-shadow hover:shadow-md">
                           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-xl flex-shrink-0">
@@ -418,10 +443,12 @@ export default function DashboardPage() {
                             </div>
                           </div>
                           <div className="flex gap-2 flex-shrink-0">
-                            <Link to={`/create?edit=${poll.id}`} className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50">✏️</Link>
-                            <button onClick={() => handleDelete(poll.id)} disabled={deleting === poll.id} className="w-8 h-8 rounded-lg border border-red-200 flex items-center justify-center text-red-500 hover:bg-red-50">
-                              {deleting === poll.id ? '⏳' : '🗑️'}
-                            </button>
+                            {canDelete && <Link to={`/create?edit=${poll.id}`} className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50">✏️</Link>}
+                            {canDelete && (
+                              <button onClick={() => handleDelete(poll.id, poll)} disabled={deleting === poll.id} className="w-8 h-8 rounded-lg border border-red-200 flex items-center justify-center text-red-500 hover:bg-red-50">
+                                {deleting === poll.id ? '⏳' : '🗑️'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -431,7 +458,7 @@ export default function DashboardPage() {
               </>
             )}
 
-            {/* Votes Tab */}
+            {/* Votes Tab – unchanged */}
             {tab === 'votes' && (
               <>
                 {votes.length === 0 ? (
@@ -459,10 +486,9 @@ export default function DashboardPage() {
               </>
             )}
 
-            {/* Analytics Tab */}
+            {/* Analytics Tab – uses newest data from active account */}
             {tab === 'analytics' && (
               <div>
-                {/* Overview stats */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                   <StatCard icon="🗳" value={analyticsOverview.totalPolls} label="Total Polls" />
                   <StatCard icon="📊" value={analyticsOverview.totalVotes.toLocaleString()} label="Total Votes" />
@@ -470,31 +496,22 @@ export default function DashboardPage() {
                   <StatCard icon="📤" value={analyticsOverview.totalShares.toLocaleString()} label="Shares" />
                 </div>
 
-                {/* Filter chips */}
                 <div className="flex flex-wrap gap-2 mb-4">
                   {['all', 'active', 'expired', 'live'].map(status => (
                     <button
                       key={status}
                       onClick={() => setFilterStatus(status)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
-                        filterStatus === status ? 'bg-gradient-to-r from-primary to-secondary text-white border-transparent shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                      }`}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${filterStatus === status ? 'bg-gradient-to-r from-primary to-secondary text-white border-transparent shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
                       {status.charAt(0).toUpperCase() + status.slice(1)}
                     </button>
                   ))}
                 </div>
 
-                {/* Polls table (horizontal scroll on mobile) */}
                 <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto mb-6">
                   <table className="min-w-full text-sm">
                     <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Poll</th>
-                        <th className="px-4 py-3 text-center">Vote Rate</th>
-                        <th className="px-4 py-3 text-center">Votes</th>
-                        <th className="px-4 py-3 text-center">Action</th>
-                      </tr>
+                      <tr><th className="px-4 py-3 text-left">Poll</th><th className="px-4 py-3 text-center">Vote Rate</th><th className="px-4 py-3 text-center">Votes</th><th className="px-4 py-3 text-center">Action</th></tr>
                     </thead>
                     <tbody>
                       {filteredAnalyticsPolls.map(poll => {
@@ -518,7 +535,6 @@ export default function DashboardPage() {
                   </table>
                 </div>
 
-                {/* Premium analytics features */}
                 {hasPremiumAnalytics(user.tier) && (
                   <>
                     <div className="bg-white rounded-xl border border-gray-100 p-5 mb-6">

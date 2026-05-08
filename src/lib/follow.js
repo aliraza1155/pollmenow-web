@@ -1,6 +1,6 @@
 // src/lib/follow.js
 import { db } from './firebase';
-import { doc, setDoc, deleteDoc, getDoc, getDocs, collection, runTransaction, increment } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, getDoc, getDocs, collection, runTransaction, increment, serverTimestamp } from 'firebase/firestore';
 import { sendTemplateNotification } from './notifications';
 import { trackUserInteraction } from './analytics';
 
@@ -13,8 +13,8 @@ export async function followUser(targetId, currentUserId) {
     const currentUserRef = doc(db, 'users', currentUserId);
     const followSnap = await transaction.get(followRef);
     if (followSnap.exists()) throw new Error('Already following');
-    transaction.set(followRef, { followedAt: new Date() });
-    transaction.set(followingRef, { followedAt: new Date() });
+    transaction.set(followRef, { followedAt: serverTimestamp() });
+    transaction.set(followingRef, { followedAt: serverTimestamp() });
     transaction.update(targetUserRef, { followersCount: increment(1) });
     transaction.update(currentUserRef, { followingCount: increment(1) });
   });

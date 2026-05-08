@@ -1,12 +1,15 @@
 // src/pages/Register.jsx
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from 'firebase/auth';
-import { doc, setDoc, getDocs, query, collection, where } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { doc, setDoc, getDocs, query, collection, where, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '../lib/firebase';
 import { detectLocation } from '../lib/location';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { motion } from 'framer-motion';
+
+const acceptInvitationCall = httpsCallable(functions, 'acceptInvitation');
 
 const FEATURES = [
   'AI-generated polls in under 10 seconds',
@@ -64,9 +67,11 @@ function AuthLeft() {
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const prefilledEmail = searchParams.get('email') || '';
 
   const [userType, setUserType] = useState('individual');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(prefilledEmail);
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -149,7 +154,8 @@ export default function Register() {
       alert('Organization name is required');
       return;
     }
-    if (!validatePhone(phone)) {
+    // ✅ Phone validation only for individual accounts
+    if (userType === 'individual' && !validatePhone(phone)) {
       alert('Please enter a valid phone number with country code (e.g., +1234567890)');
       return;
     }
@@ -170,8 +176,8 @@ export default function Register() {
         type: userType,
         tier: 'free',
         verified: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         followersCount: 0,
         followingCount: 0,
         pollsCreated: 0,
@@ -181,6 +187,8 @@ export default function Register() {
           country: locationData.country || null,
           city: userType === 'individual' ? null : orgCity,
         },
+        memberships: {},
+        activeAccount: 'personal',
       };
       if (userType === 'individual') {
         if (age) userData.age = parseInt(age);
@@ -191,6 +199,41 @@ export default function Register() {
         userData.location.city = orgCity;
       }
       await setDoc(doc(db, 'users', user.uid), userData);
+
+      // ✅ If organization, create organization document and set owner membership
+      if (userType === 'organization') {
+        const orgRef = doc(db, 'organizations', user.uid);
+        await setDoc(orgRef, {
+          name: orgName,
+          ownerId: user.uid,
+          createdAt: serverTimestamp(),
+          settings: { allowMemberInvites: true, defaultRole: 'member' },
+        });
+        // Add membership for the owner
+        await updateDoc(doc(db, 'users', user.uid), {
+          [`memberships.${user.uid}`]: {
+            role: 'owner',
+            name: orgName,
+            joinedAt: serverTimestamp(),
+          },
+          activeAccount: user.uid, // switch to organization context immediately
+        });
+      }
+
+      // ✅ Auto‑accept pending invitation after registration
+      const pendingInvite = sessionStorage.getItem('pendingInvite');
+      if (pendingInvite) {
+        try {
+          const { email: inviteEmail, orgId } = JSON.parse(pendingInvite);
+          if (inviteEmail === email) {
+            await acceptInvitationCall({ email, orgId });
+            sessionStorage.removeItem('pendingInvite');
+          }
+        } catch (err) {
+          console.warn('Auto‑accept failed:', err);
+        }
+      }
+
       await sendEmailVerification(user);
       navigate('/verify-email', { state: { email } });
     } catch (err) {
@@ -330,18 +373,21 @@ export default function Register() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
-                Phone (optional)
-              </label>
-              <input
-                type="tel"
-                placeholder="+1234567890"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
-              />
-            </div>
+            {/* Phone field – show only for individual accounts */}
+            {userType === 'individual' && (
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                  Phone (optional)
+                </label>
+                <input
+                  type="tel"
+                  placeholder="+1234567890"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                />
+              </div>
+            )}
 
             {/* Individual fields */}
             {userType === 'individual' && (

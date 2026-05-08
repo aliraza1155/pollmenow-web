@@ -1,16 +1,16 @@
-// src/pages/CreatePollPage.jsx – Fully responsive, same logic & features
+// src/pages/CreatePollPage.jsx – Fully responsive, same logic & features + targeting/anonymous mutual exclusion
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { db, storage } from '../lib/firebase';
-import { doc, addDoc, collection, getDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, addDoc, collection, getDoc, updateDoc, serverTimestamp, Timestamp, increment } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { CATEGORIES, POLL_TYPES, VISIBILITY_OPTIONS, DURATION_OPTIONS, MAX_TITLE_LENGTH, MAX_OPTION_LENGTH, MAX_TAGS } from '../lib/constants';
 import { canCreatePollType, canUseVisibility, getMaxOptions, getMonthlyPollLimit, hasTargeting, canUseAIFeatures, canUseAIPollGeneration } from '../lib/tierUtils';
 import { generatePollSuggestions, generatePollFromURL, generateAndUploadImage, getDetailedPrompt } from '../lib/ai';
 import { uploadToFirebaseStorage } from '../lib/upload';
 import MediaPicker from '../components/MediaPicker';
-import TagInput from '../components/TagInput';
+import { TagInput } from '../components/UI';
 
 // Basic country list – replace with your full list if needed
 const COUNTRIES = [
@@ -52,19 +52,25 @@ function FormCard({ children, className = '' }) {
   );
 }
 
-function Toggle({ value, onChange }) {
+// Improved Toggle with disabled state
+function Toggle({ value, onChange, disabled = false, disabledReason = '' }) {
   return (
-    <div
-      onClick={() => onChange(!value)}
-      className={`w-10 h-5.5 rounded-full relative cursor-pointer transition-colors duration-200 flex-shrink-0 ${
-        value ? 'bg-gradient-to-r from-primary to-secondary' : 'bg-gray-200'
-      }`}
-    >
+    <div className="relative inline-flex">
       <div
-        className={`absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-transform duration-200 ${
-          value ? 'translate-x-[18px]' : 'translate-x-0.5'
-        }`}
-      />
+        onClick={() => !disabled && onChange(!value)}
+        className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+          value ? 'bg-gradient-to-r from-primary to-secondary' : 'bg-gray-300'
+        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
+            value ? 'translate-x-5' : 'translate-x-0.5'
+          } mt-0.5`}
+        />
+      </div>
+      {disabled && disabledReason && (
+        <span className="ml-2 text-[10px] text-gray-400 italic">{disabledReason}</span>
+      )}
     </div>
   );
 }
@@ -90,11 +96,12 @@ export default function CreatePollPage() {
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
 
-  // === Core form state (unchanged) ===
+  // === Core form state ===
   const [question, setQuestion] = useState('');
   const [type, setType] = useState('quick');
   const [visibility, setVisibility] = useState('public');
-  const [anonymous, setAnonymous] = useState(false);
+  // Anonymous voting is now enabled by default (true) for non-private polls
+  const [anonymous, setAnonymous] = useState(true);
   const [category, setCategory] = useState('general');
   const [tags, setTags] = useState([]);
   const [durationMs, setDurationMs] = useState(null);
@@ -152,6 +159,24 @@ export default function CreatePollPage() {
   };
 
   const getAllOptionTexts = () => options.map(opt => opt.text).filter(t => t.trim());
+
+  // When visibility changes to private, force anonymous voting off
+  useEffect(() => {
+    if (visibility === 'private') {
+      setAnonymous(false);
+    }
+  }, [visibility]);
+
+  // ========== Mutual exclusion between targeting and anonymous voting ==========
+  useEffect(() => {
+    if (targeting.enabled && anonymous) {
+      setAnonymous(false);
+      showToast('info', 'Anonymous voting disabled because audience targeting is enabled.');
+    }
+  }, [targeting.enabled, anonymous]);
+
+  // When anonymous is true, prevent enabling targeting (disable the targeting toggle)
+  // This is handled by the disabled prop in the targeting toggle.
 
   // ========== Prompt editor helpers (unchanged) ==========
   const openPromptEditor = async (target) => {
@@ -560,19 +585,18 @@ export default function CreatePollPage() {
         showToast('success', 'Poll updated!');
         navigate(`/poll/${editId}`);
       } else {
-        const ref_ = await addDoc(collection(db, 'polls'), pollData);
-        if (!scheduleEnabled || tier !== 'premium') {
-          await updateDoc(doc(db, 'users', user.uid), {
-            pollsThisMonth: (user.pollsThisMonth || 0) + 1,
-            pollsCreated: (user.pollsCreated || 0) + 1,
-            updatedAt: serverTimestamp(),
-          });
-          await refreshUser();
-        }
+        const pollRef = await addDoc(collection(db, 'polls'), pollData);
+        // ✅ ALWAYS increment monthly usage, regardless of scheduled status
+        await updateDoc(doc(db, 'users', user.uid), {
+          pollsThisMonth: increment(1),
+          pollsCreated: increment(1),
+          updatedAt: serverTimestamp(),
+        });
+        await refreshUser();
         setProgress(100);
         if (visibility === 'private' && accessCode) showToast('success', `Poll published! Access code: ${accessCode}`);
         else showToast('success', 'Poll published!');
-        navigate(`/poll/${ref_.id}`);
+        navigate(`/poll/${pollRef.id}`);
       }
     } catch (err) {
       console.error(err);
@@ -583,7 +607,7 @@ export default function CreatePollPage() {
     }
   };
 
-  // Helper components for targeting and country picker (unchanged logic)
+  // Helper components for targeting and country picker
   const renderTargeting = () => {
     if (!canUseTargeting) return null;
     const filteredCountries = COUNTRIES.filter(c => c.name.toLowerCase().includes(countrySearch.toLowerCase()));
@@ -595,7 +619,12 @@ export default function CreatePollPage() {
             <p className="text-sm font-semibold text-gray-800 m-0">Target specific audience</p>
             <p className="text-[11px] text-gray-400 mt-0.5">Show this poll only to selected demographics</p>
           </div>
-          <Toggle value={targeting.enabled} onChange={(v) => setTargeting(prev => ({ ...prev, enabled: v }))} />
+          <Toggle
+            value={targeting.enabled}
+            onChange={(v) => setTargeting(prev => ({ ...prev, enabled: v }))}
+            disabled={anonymous && !targeting.enabled}
+            disabledReason={anonymous ? "Turn off anonymous voting first" : ""}
+          />
         </div>
         {targeting.enabled && (
           <div className="mt-3 pt-3 border-t border-gray-100">
@@ -945,7 +974,12 @@ export default function CreatePollPage() {
                     <p className="text-sm font-semibold text-gray-800 m-0">Anonymous voting</p>
                     <p className="text-[11px] text-gray-400 mt-0.5">Hide voter identities</p>
                   </div>
-                  <Toggle value={anonymous && visibility !== 'private'} onChange={v => setAnonymous(v)} />
+                  <Toggle
+                    value={anonymous && visibility !== 'private'}
+                    onChange={v => setAnonymous(v)}
+                    disabled={targeting.enabled}
+                    disabledReason={targeting.enabled ? "Cannot be anonymous with targeting enabled" : ""}
+                  />
                 </div>
               </FormCard>
 
@@ -1030,7 +1064,12 @@ export default function CreatePollPage() {
                   <p className="text-sm font-semibold text-gray-800 m-0">Anonymous voting</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">Hide voter identities</p>
                 </div>
-                <Toggle value={anonymous && visibility !== 'private'} onChange={v => setAnonymous(v)} />
+                <Toggle
+                  value={anonymous && visibility !== 'private'}
+                  onChange={v => setAnonymous(v)}
+                  disabled={targeting.enabled}
+                  disabledReason={targeting.enabled ? "Cannot be anonymous with targeting enabled" : ""}
+                />
               </div>
             </FormCard>
 

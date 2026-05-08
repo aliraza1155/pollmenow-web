@@ -2,15 +2,10 @@
 import { db } from './firebase';
 import { doc, getDoc, runTransaction, increment, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { getVoterKey } from './voterKey';
-import { requiresLoginToVote } from './tierUtils';
 import { sendVoteNotification } from './notifications';
-import { trackUserInteraction } from './analytics';
 import { getCountryFromIP } from './location';
 
-export async function submitVote(pollId, optionId, userId, anonymous = false, accessCode = null, creatorTier = 'free') {
-  if (requiresLoginToVote(creatorTier) && !userId) {
-    throw new Error('Login required to vote in this poll');
-  }
+export async function submitVote(pollId, optionId, userId, anonymous = false, accessCode = null) {
   const voterKey = await getVoterKey();
   const voteId = anonymous ? `${pollId}_${voterKey}` : `${pollId}_${userId}`;
   const location = await getCountryFromIP();
@@ -24,6 +19,55 @@ export async function submitVote(pollId, optionId, userId, anonymous = false, ac
     const pollSnap = await transaction.get(pollRef);
     if (!pollSnap.exists()) throw new Error('Poll not found');
     const pollData = pollSnap.data();
+
+    // Rule: if poll.anonymous === false, login required
+    if (!pollData.anonymous && !userId) {
+      throw new Error('Login required to vote in this poll');
+    }
+
+    // ========== TARGETING ENFORCEMENT ==========
+    if (pollData.meta?.targetDemographics) {
+      const target = pollData.meta.targetDemographics;
+      // Targeting requires a logged‑in user (because we need age/gender/location from profile)
+      if (!userId) {
+        throw new Error('This poll is targeted to a specific audience. Please log in to vote.');
+      }
+      const userDoc = await transaction.get(doc(db, 'users', userId));
+      if (!userDoc.exists()) throw new Error('User data not found');
+      const userData = userDoc.data();
+
+      // Age check
+      if (target.ageRange && userData.age) {
+        const age = parseInt(userData.age);
+        if (age < target.ageRange[0] || age > target.ageRange[1]) {
+          throw new Error(`This poll is only for users aged ${target.ageRange[0]}–${target.ageRange[1]}.`);
+        }
+      } else if (target.ageRange) {
+        // User has no age in profile
+        throw new Error(`This poll requires you to set your age in profile (${target.ageRange[0]}–${target.ageRange[1]}).`);
+      }
+
+      // Gender check
+      if (target.genders && target.genders.length > 0) {
+        if (!userData.gender) {
+          throw new Error('This poll requires you to specify your gender in your profile.');
+        }
+        if (!target.genders.includes(userData.gender)) {
+          throw new Error('Your gender does not match the target audience for this poll.');
+        }
+      }
+
+      // Country check (from profile, not IP)
+      if (target.locations && target.locations.length > 0) {
+        const userCountry = userData.location?.country;
+        if (!userCountry) {
+          throw new Error('This poll requires you to set your country in your profile.');
+        }
+        if (!target.locations.includes(userCountry)) {
+          throw new Error(`This poll is only available in specific countries (${target.locations.join(', ')}).`);
+        }
+      }
+    }
 
     // Validate option
     if (pollData.type === 'rating') {
@@ -48,7 +92,7 @@ export async function submitVote(pollId, optionId, userId, anonymous = false, ac
       }
     }
 
-    // Create vote document
+    // Prepare vote data
     const voteData = {
       pollId,
       optionId,
@@ -60,13 +104,44 @@ export async function submitVote(pollId, optionId, userId, anonymous = false, ac
         category: pollData.category
       }
     };
-    if (userId && !anonymous) voteData.userId = userId;
-    if (anonymous) voteData.deviceId = voterKey;
+
+    if (anonymous) {
+      voteData.deviceId = voterKey;
+      if (userId) {
+        // Logged‑in user voting anonymously – capture demographics without identity
+        const userDoc = await transaction.get(doc(db, 'users', userId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          voteData.demographics = {
+            age: userData.age || null,
+            gender: userData.gender || null,
+            country: userData.location?.country || null,
+          };
+        }
+      }
+    } else {
+      // Non‑anonymous vote: store user identity (for creator to see)
+      voteData.userId = userId;
+      const userDoc = await transaction.get(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        voteData.user = {
+          id: userId,
+          name: userData.name || 'Anonymous',
+          profileImage: userData.profileImage || null,
+          username: userData.username,
+          age: userData.age || null,
+          gender: userData.gender || null,
+          location: userData.location || null,
+        };
+      }
+    }
+
     if (accessCode) voteData.accessCode = accessCode;
 
     transaction.set(doc(db, 'votes', voteId), voteData);
 
-    // Update poll
+    // Update poll (rating or standard)
     if (pollData.type === 'rating') {
       const rating = parseInt(optionId);
       const ratingCounts = pollData.ratingCounts || {};
@@ -85,6 +160,12 @@ export async function submitVote(pollId, optionId, userId, anonymous = false, ac
       );
       transaction.update(pollRef, { options, totalVotes: increment(1) });
     }
+
+    // Send notification only for non‑anonymous votes
+    if (userId && !anonymous && pollData.creator?.id !== userId) {
+      sendVoteNotification(pollId, userId, pollData.creator?.id, pollData.question).catch(console.error);
+    }
+
     return true;
   });
 }
@@ -100,6 +181,42 @@ export async function hasUserVoted(pollId, userId, checkAnonymous = true) {
     if (snap.exists()) return true;
   }
   return false;
+}
+
+/**
+ * Get all non‑anonymous votes for a poll (creator view).
+ */
+export async function getPollVotes(pollId) {
+  const votesQuery = query(
+    collection(db, 'votes'),
+    where('pollId', '==', pollId),
+    where('userId', '!=', null)
+  );
+  const snapshot = await getDocs(votesQuery);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+/**
+ * Get all votes for analytics aggregation (including demographic data from anonymous votes).
+ * This is used by the analytics engine (e.g., cloud function) to compute age/gender/country breakdowns.
+ * Does not expose user identities.
+ */
+export async function getAnalyticsVotes(pollId) {
+  const votesQuery = query(
+    collection(db, 'votes'),
+    where('pollId', '==', pollId)
+  );
+  const snapshot = await getDocs(votesQuery);
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    // Return only safe fields for aggregation
+    return {
+      optionId: data.optionId,
+      demographics: data.demographics || null,
+      userId: data.userId || null, // only present for non‑anonymous
+      metadata: data.metadata || null,
+    };
+  });
 }
 
 export async function getUserVotes(userId) {

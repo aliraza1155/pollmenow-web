@@ -27,7 +27,6 @@ export default function PollCard({ poll, showDetailedStats = false }) {
       yesno: { label: '✅ Yes/No', color: 'bg-green-50 text-green-700 border-green-200' },
       rating: { label: '⭐ Rating', color: 'bg-orange-50 text-orange-700 border-orange-200' },
       comparison: { label: '⚖ Comparison', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-      targeted: { label: '🎯 Targeted', color: 'bg-purple-50 text-purple-700 border-purple-200' },
       live: { label: '🔴 Live', color: 'bg-red-50 text-red-700 border-red-200' }
     };
     return types[type] || types.quick;

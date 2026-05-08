@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { callFunction } from '../lib/firebase';
-import { hasPremiumAnalytics } from '../lib/tierUtils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
@@ -61,7 +61,7 @@ const TRUST_ITEMS = [
   { icon: '✓', label: 'Stripe verified' },
 ];
 
-function PaymentForm({ plan, onSuccess }) {
+function PaymentForm({ plan, onSuccess, showToast }) {
   const stripe = useStripe();
   const elements = useElements();
   const [loading, setLoading] = useState(false);
@@ -77,13 +77,13 @@ function PaymentForm({ plan, onSuccess }) {
         redirect: 'if_required',
       });
       if (error) {
-        alert(error.message);
+        showToast('error', error.message);
       } else if (paymentIntent.status === 'succeeded') {
-        alert('Payment successful! Upgrading account...');
+        showToast('success', 'Payment successful! Upgrading account...');
         onSuccess();
       }
     } catch (err) {
-      alert('Payment failed. Please try again.');
+      showToast('error', 'Payment failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -112,6 +112,12 @@ export default function UpgradePage() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [clientSecret, setClientSecret] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (type, msg) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   const currentTier = user?.tier || 'free';
   const isCurrentPlan = (planTier) => planTier === currentTier;
@@ -122,7 +128,7 @@ export default function UpgradePage() {
       return;
     }
     if (isCurrentPlan(plan.tier)) {
-      alert('You are already on this plan.');
+      showToast('info', 'You are already on this plan.');
       return;
     }
     setSelectedPlan(plan);
@@ -136,7 +142,7 @@ export default function UpgradePage() {
       setClientSecret(result.clientSecret);
     } catch (err) {
       console.error(err);
-      alert('Failed to initialize payment. Please try again.');
+      showToast('error', 'Failed to initialize payment. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -145,6 +151,7 @@ export default function UpgradePage() {
   const handlePaymentSuccess = async () => {
     await new Promise(resolve => setTimeout(resolve, 3000));
     await refreshUser();
+    showToast('success', 'Upgrade complete! You now have premium features.');
     navigate('/dashboard');
   };
 
@@ -162,6 +169,30 @@ export default function UpgradePage() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* Toast notifications */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 right-4 z-50 max-w-sm w-full"
+          >
+            <div
+              className={`rounded-xl px-4 py-3 shadow-lg ${
+                toast.type === 'success'
+                  ? 'bg-green-50 border border-green-200 text-green-800'
+                  : toast.type === 'error'
+                  ? 'bg-red-50 border border-red-200 text-red-800'
+                  : 'bg-blue-50 border border-blue-200 text-blue-800'
+              }`}
+            >
+              {toast.msg}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="max-w-6xl mx-auto px-6 py-12">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Simple, transparent pricing</h1>
@@ -229,7 +260,7 @@ export default function UpgradePage() {
               <button
                 onClick={() => handleSelectPlan(activePremium)}
                 disabled={loading}
-                className="mt-6 w-full bg-gradient-to-r from-purple-600 to-pink-500 text-white py-2 rounded-lg font-semibold hover:opacity-90 transition"
+                className="mt-6 w-full bg-gradient-to-r from-purple-600 to-pink-500 text-white py-2 rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50"
               >
                 Upgrade
               </button>
@@ -254,7 +285,7 @@ export default function UpgradePage() {
               <button
                 onClick={() => handleSelectPlan(activeOrg)}
                 disabled={loading}
-                className="mt-6 w-full border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-50 transition"
+                className="mt-6 w-full border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-50 transition disabled:opacity-50"
               >
                 Contact sales
               </button>
@@ -276,7 +307,7 @@ export default function UpgradePage() {
         {clientSecret && selectedPlan && (
           <div className="max-w-md mx-auto mt-6 bg-gray-50 rounded-2xl p-6 border border-gray-200">
             <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'stripe' } }}>
-              <PaymentForm plan={selectedPlan} onSuccess={handlePaymentSuccess} />
+              <PaymentForm plan={selectedPlan} onSuccess={handlePaymentSuccess} showToast={showToast} />
             </Elements>
             <button
               onClick={() => { setSelectedPlan(null); setClientSecret(null); }}

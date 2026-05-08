@@ -26,7 +26,6 @@ const TYPE_FILTERS = [
   { key: 'yesno', label: 'Yes / No' },
   { key: 'rating', label: 'Rating' },
   { key: 'comparison', label: 'Comparison' },
-  { key: 'targeted', label: 'Targeted' },
   { key: 'live', label: 'Live' },
 ];
 
@@ -35,7 +34,6 @@ const TYPE_BADGE = {
   yesno: { label: '✅ Yes / No', cls: 'bg-green-50 text-green-800' },
   rating: { label: '⭐ Rating', cls: 'bg-orange-50 text-orange-800' },
   comparison: { label: '⚖ Compare', cls: 'bg-blue-50 text-blue-800' },
-  targeted: { label: '🎯 Targeted', cls: 'bg-purple-50 text-purple-800' },
   live: { label: '🔴 Live', cls: 'bg-red-50 text-red-800' },
 };
 

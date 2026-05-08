@@ -7,7 +7,7 @@ import { collection, query, where, orderBy, getDocs, limit, startAfter, getCount
 import { useDebounce } from '../hooks/useDebounce';
 import { VerifiedBadge, PremiumBadge } from '../components/UI';
 
-const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', targeted:'🎯', live:'🔴' };
+const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', live:'🔴' };
 const TRENDING_TAGS = ['remote work', 'AI tools', 'sports', 'technology', 'politics', 'food'];
 const POLLS_PER_PAGE = 20;
 

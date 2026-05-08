@@ -86,7 +86,7 @@ export const firestore = {
   doc, getDoc, setDoc, updateDoc, increment, deleteDoc,
   collection, addDoc, query, where, orderBy, limit,
   runTransaction, Timestamp, onSnapshot, writeBatch,
-  startAfter: (doc) => doc, // simplified
+  // startAfter line removed – use direct import from 'firebase/firestore' when needed
   arrayUnion, arrayRemove, deleteField,
   getDocs
 };

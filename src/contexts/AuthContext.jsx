@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         let userDoc = await getDoc(userDocRef);
         if (!userDoc.exists()) {
-          // Create missing user document
+          // Create missing user document with all required fields
           const defaultUserData = {
             uid: firebaseUser.uid,
             name: firebaseUser.displayName || 'User',
@@ -32,7 +32,9 @@ export function AuthProvider({ children }) {
             pollsCreated: 0,
             pollsThisMonth: 0,
             phone: null,
-            location: { country: null, city: null }
+            location: { country: null, city: null },
+            memberships: {},           // ← organization memberships
+            activeAccount: 'personal', // ← default active account
           };
           await setDoc(userDocRef, defaultUserData);
           userDoc = await getDoc(userDocRef);
@@ -41,6 +43,8 @@ export function AuthProvider({ children }) {
         setUser({
           uid: firebaseUser.uid,
           ...data,
+          memberships: data.memberships || {},
+          activeAccount: data.activeAccount || 'personal',
           createdAt: data.createdAt?.toDate?.() || new Date(),
           updatedAt: data.updatedAt?.toDate?.() || new Date(),
         });
@@ -56,7 +60,13 @@ export function AuthProvider({ children }) {
     if (auth.currentUser) {
       const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
       if (userDoc.exists()) {
-        setUser({ uid: auth.currentUser.uid, ...userDoc.data() });
+        const data = userDoc.data();
+        setUser({
+          uid: auth.currentUser.uid,
+          ...data,
+          memberships: data.memberships || {},
+          activeAccount: data.activeAccount || 'personal',
+        });
       }
     }
   };

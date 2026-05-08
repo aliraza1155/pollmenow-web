@@ -16,7 +16,6 @@ export const PollType = {
   YESNO: 'yesno',
   RATING: 'rating',
   COMPARISON: 'comparison',
-  TARGETED: 'targeted',
   LIVE: 'live'
 };
 

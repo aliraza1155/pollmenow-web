@@ -1,4 +1,4 @@
-// src/pages/PollWidget.jsx – Modern, responsive, engaging poll widget
+// src/pages/PollWidget.jsx
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -17,7 +17,7 @@ export default function PollWidget() {
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Fetch poll and listen for real‑time updates
+  // Fetch poll
   useEffect(() => {
     if (!id) return;
     const pollRef = doc(db, 'polls', id);
@@ -42,7 +42,6 @@ export default function PollWidget() {
     if (poll && !voted) {
       const checkVoted = async () => {
         try {
-          // Anonymous check (deviceId) – no user logged in, only device fingerprint
           const already = await hasUserVoted(poll.id, undefined, true);
           setVoted(already);
         } catch (err) {
@@ -61,14 +60,13 @@ export default function PollWidget() {
     setSubmitting(true);
     setError('');
     try {
-      // Use the proper vote submission logic (supports anonymous voting)
+      // ✅ No creatorTier parameter – submitVote now reads from poll document
       await submitVote(
         poll.id,
-        selectedOption.toString(), // option id (index as string)
-        null,                      // no logged‑in user
-        true,                      // vote anonymously (device-based)
-        undefined,                 // no access code for widget
-        poll.creator?.tier || 'free'
+        selectedOption,   // this is now the option ID, not index
+        null,             // no logged-in user
+        true,             // vote anonymously (device-based)
+        undefined         // no access code
       );
       setVoted(true);
     } catch (err) {
@@ -153,7 +151,7 @@ export default function PollWidget() {
           className="bg-white dark:bg-gray-900 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header with close button */}
+          {/* Header */}
           <div className="relative px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800">
             <button
               onClick={closeWidget}
@@ -171,7 +169,6 @@ export default function PollWidget() {
 
           {/* Content */}
           <div className="p-5 sm:p-6">
-            {/* Question */}
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white leading-tight mb-2">
               {poll.question}
             </h2>
@@ -179,7 +176,6 @@ export default function PollWidget() {
               <p className="text-gray-600 dark:text-gray-300 text-sm mb-5">{poll.description}</p>
             )}
 
-            {/* Expired notice */}
             {isExpired && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-5 flex items-center gap-2">
                 <span className="text-amber-600">⏰</span>
@@ -187,7 +183,6 @@ export default function PollWidget() {
               </div>
             )}
 
-            {/* Vote options or results */}
             {!canVote ? (
               // Results view
               <div className="space-y-4">
@@ -196,10 +191,10 @@ export default function PollWidget() {
                   <p className="text-xs text-gray-500">{totalVotes.toLocaleString()} votes</p>
                 </div>
                 <div className="space-y-3">
-                  {poll.options.map((opt, idx) => {
+                  {poll.options.map((opt) => {
                     const percent = totalVotes > 0 ? ((opt.votes || 0) / totalVotes) * 100 : 0;
                     return (
-                      <div key={idx}>
+                      <div key={opt.id}>
                         <div className="flex justify-between text-sm mb-1">
                           <span className="text-gray-800 dark:text-gray-200">{opt.text}</span>
                           <span className="font-semibold text-primary">{Math.round(percent)}%</span>
@@ -222,14 +217,14 @@ export default function PollWidget() {
                 )}
               </div>
             ) : (
-              // Voting form
+              // Voting form – using option.id, not index
               <>
                 <div className="space-y-3 mb-6">
-                  {poll.options.map((opt, idx) => (
+                  {poll.options.map((opt) => (
                     <label
-                      key={idx}
+                      key={opt.id}
                       className={`flex items-center p-3 border rounded-xl cursor-pointer transition-all ${
-                        selectedOption === idx
+                        selectedOption === opt.id
                           ? 'border-primary bg-primary/5 shadow-sm'
                           : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                       }`}
@@ -237,9 +232,9 @@ export default function PollWidget() {
                       <input
                         type="radio"
                         name="option"
-                        value={idx}
-                        checked={selectedOption === idx}
-                        onChange={() => setSelectedOption(idx)}
+                        value={opt.id}
+                        checked={selectedOption === opt.id}
+                        onChange={() => setSelectedOption(opt.id)}
                         className="w-4 h-4 text-primary focus:ring-primary mr-3"
                       />
                       <span className="text-gray-800 dark:text-gray-200">{opt.text}</span>
@@ -264,7 +259,7 @@ export default function PollWidget() {
               </>
             )}
 
-            {/* Footer actions */}
+            {/* Footer */}
             <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-3 justify-between items-center">
               <button
                 onClick={handleShare}

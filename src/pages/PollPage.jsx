@@ -4,10 +4,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import { usePoll } from '../hooks/usePoll';
-import { submitVote, hasUserVoted } from '../lib/vote';
+import { submitVote, hasUserVoted, getPollVotes } from '../lib/vote';
 import { isFollowing, followUser, unfollowUser } from '../lib/follow';
 import { getPollAnalytics } from '../lib/analytics';
-import { hasPremiumAnalytics, requiresLoginToVote } from '../lib/tierUtils';
+import { hasPremiumAnalytics } from '../lib/tierUtils';
 import { formatDate } from '../lib/utils';
 import { trackPollView } from '../lib/viewTracker';
 import ShareWidget from '../components/ShareWidget';
@@ -17,7 +17,6 @@ const TYPE_META = {
   yesno: { label: '✅ Yes / No', cls: 'bg-green-50 text-green-800' },
   rating: { label: '⭐ Rating Poll', cls: 'bg-orange-50 text-orange-800' },
   comparison: { label: '⚖ Comparison', cls: 'bg-blue-50 text-blue-800' },
-  targeted: { label: '🎯 Targeted Poll', cls: 'bg-purple-50 text-purple-800' },
   live: { label: '🔴 Live Poll', cls: 'bg-red-50 text-red-800' },
 };
 
@@ -55,8 +54,30 @@ export default function PollPage() {
   const [notification, setNotification] = useState(null);
   const [followingLoading, setFollowingLoading] = useState(false);
   const [permissionError, setPermissionError] = useState(false);
+  const [voters, setVoters] = useState([]);
+  const [signupMessageIndex, setSignupMessageIndex] = useState(0);
 
-  // Detect permission error (non‑logged‑in user trying to view a restricted poll)
+  const signupMessages = [
+    "✨ Sign up to follow your favorite creators!",
+    "📊 Sign up to see deep insights into poll results!",
+    "📜 Sign up to view your voting history!",
+    "🗳️ Sign up to create your own polls!",
+    "👥 Sign up to create private polls for friends!",
+    "🌍 Sign up to share polls with the world!",
+    "🔒 Sign up to create polls with access codes!",
+    "🏆 Sign up to earn badges and achievements!",
+  ];
+
+  // Rotate message every 4 seconds after non‑logged‑in user votes
+  useEffect(() => {
+    if (!user && hasVoted) {
+      const interval = setInterval(() => {
+        setSignupMessageIndex((prev) => (prev + 1) % signupMessages.length);
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [user, hasVoted]);
+
   useEffect(() => {
     if (error && (error.includes('permission-denied') || error.includes('Missing or insufficient permissions'))) {
       setPermissionError(true);
@@ -76,14 +97,23 @@ export default function PollPage() {
         ]);
         setIsFollowingCreator(fol);
         setHasVoted(voted);
-      } else if (poll.anonymous) {
-        // Only check anonymous vote if poll allows anonymous voting
-        setHasVoted(await hasUserVoted(poll.id, undefined, true));
+      } else {
+        if (poll.anonymous) {
+          setHasVoted(await hasUserVoted(poll.id, undefined, true));
+        }
       }
       trackPollView(poll.id, user?.uid).catch(() => {});
     };
     check();
   }, [poll, user]);
+
+  useEffect(() => {
+    if (isCreator && poll && !poll.anonymous) {
+      getPollVotes(poll.id)
+        .then(setVoters)
+        .catch(console.error);
+    }
+  }, [isCreator, poll]);
 
   useEffect(() => {
     if (!poll) return;
@@ -119,20 +149,31 @@ export default function PollPage() {
     setVoting(true);
     try {
       await submitVote(
-  poll.id,
-  selectedOption,
-  user?.uid,
-  voteAnonymously && poll.visibility !== 'private',
-  poll.visibility === 'private' ? accessCode : undefined,
-  poll.creator?.tier || 'free'
-);
+        poll.id,
+        selectedOption,
+        user?.uid,
+        voteAnonymously && poll.visibility !== 'private',
+        poll.visibility === 'private' ? accessCode : undefined
+      );
       setHasVoted(true);
       notify('success', 'Your vote has been recorded! 🎉');
     } catch (err) {
-      if (err.message?.includes('Login required')) {
+      const errorMsg = err.message || '';
+      // Check for targeting or profile‑related messages
+      if (errorMsg.includes('Login required')) {
         setShowAuthModal(true);
+      } else if (
+        errorMsg.includes('only for users aged') ||
+        errorMsg.includes('gender does not match') ||
+        errorMsg.includes('only available in specific countries') ||
+        errorMsg.includes('requires you to set your age') ||
+        errorMsg.includes('requires you to specify your gender') ||
+        errorMsg.includes('set your country') ||
+        errorMsg.includes('targeted to a specific audience')
+      ) {
+        notify('error', errorMsg);
       } else {
-        notify('error', err.message || 'Failed to submit vote.');
+        notify('error', errorMsg || 'Failed to submit vote.');
       }
     } finally {
       setVoting(false);
@@ -172,7 +213,6 @@ export default function PollPage() {
     );
   }
 
-  // Permission error: poll exists but user not allowed to read
   if (permissionError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -210,8 +250,8 @@ export default function PollPage() {
   const showResults = hasVoted || isExpired || isCreator;
   const typeMeta = TYPE_META[poll.type] || TYPE_META.quick;
   const isMillionPlus = totalVotes >= 1_000_000;
-  const loginRequiredToVote = requiresLoginToVote(poll.creator?.tier || 'free');
-  const votingDisabledBecauseLogin = !user && loginRequiredToVote && !poll.anonymous;
+  const loginRequiredToVote = !poll.anonymous;
+  const votingDisabledBecauseLogin = !user && loginRequiredToVote;
 
   const renderOptions = () => {
     if (poll.type === 'rating') {
@@ -460,7 +500,11 @@ export default function PollPage() {
             {votingDisabledBecauseLogin && canVote && (
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
                 <span className="text-amber-600">🔐</span>
-                <span className="text-sm text-amber-800">You must sign in to vote on this poll.</span>
+                <span className="text-sm text-amber-800">
+                  {poll.anonymous
+                    ? "You must sign in to vote anonymously on this poll."
+                    : "You must sign in to vote on this poll."}
+                </span>
                 <Link to="/login" className="ml-auto text-primary font-semibold text-sm">Sign in</Link>
               </div>
             )}
@@ -495,6 +539,28 @@ export default function PollPage() {
               </div>
             )}
 
+            {/* Post‑vote signup encouragement for non‑logged‑in users */}
+            {!user && hasVoted && (
+              <div className="mt-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-primary/30 rounded-xl p-4">
+                <div className="flex flex-col md:flex-row items-center gap-4">
+                  <div className="flex-1 text-center md:text-left">
+                    <p className="text-sm font-semibold text-gray-800 animate-pulse">
+                      🎉 You voted! Now unlock more features:
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1 transition-all duration-300">
+                      {signupMessages[signupMessageIndex]}
+                    </p>
+                  </div>
+                  <Link
+                    to="/register"
+                    className="bg-gradient-to-r from-primary to-secondary text-white px-5 py-2 rounded-full text-sm font-bold shadow-md hover:shadow-lg transition whitespace-nowrap"
+                  >
+                    Sign up free →
+                  </Link>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3 mt-4">
               <button
                 onClick={() => setShowShare(true)}
@@ -512,6 +578,35 @@ export default function PollPage() {
                 🔗 Copy Link
               </button>
             </div>
+
+            {/* Voter list (only for creator when poll.anonymous === false) */}
+            {isCreator && !poll.anonymous && voters.length > 0 && (
+              <div className="mt-6 bg-white rounded-xl border border-gray-100 p-4">
+                <h3 className="font-bold text-gray-800 mb-3">Who voted</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {voters.map(vote => {
+                    const votedOption = poll.options?.find(o => o.id === vote.optionId);
+                    return (
+                      <div key={vote.id} className="flex items-center gap-3 p-2 border-b border-gray-100">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white text-xs font-bold overflow-hidden">
+                          {vote.user?.profileImage ? (
+                            <img src={vote.user.profileImage} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            (vote.user?.name?.[0] || 'U').toUpperCase()
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{vote.user?.name || 'Anonymous'}</p>
+                          <p className="text-xs text-gray-400">
+                            Voted for: {votedOption?.text || vote.optionId}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {isMillionPlus && (
               <div className="mt-5 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
@@ -564,6 +659,23 @@ export default function PollPage() {
                 </div>
               </div>
             </div>
+
+            {/* Sidebar signup prompt for non‑logged‑in users who haven't voted */}
+            {!user && !hasVoted && (
+              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-primary/20 rounded-xl p-4 text-center">
+                <p className="text-2xl">🌟</p>
+                <p className="text-sm font-extrabold text-indigo-800 mt-2 mb-1">Join PollMeNow</p>
+                <p className="text-xs text-purple-700 mb-3 leading-relaxed">
+                  Follow creators, create your own polls, see who voted, and much more!
+                </p>
+                <Link
+                  to="/register"
+                  className="inline-block bg-gradient-to-r from-primary to-secondary text-white rounded-full px-4 py-1.5 text-xs font-bold shadow hover:shadow-md transition"
+                >
+                  Create free account
+                </Link>
+              </div>
+            )}
 
             {analytics ? (
               <div className="bg-white rounded-xl border border-gray-100 p-4">

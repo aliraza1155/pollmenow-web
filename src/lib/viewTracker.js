@@ -1,6 +1,6 @@
 // src/lib/viewTracker.js
 import { db } from './firebase';
-import { doc, runTransaction, increment, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, runTransaction, increment, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { getVoterKey } from './voterKey';
 import { trackUserInteraction } from './analytics';
 
@@ -24,7 +24,6 @@ export async function trackPollView(pollId, userId) {
   log(`Tracking view for poll ${pollId}, viewerKey: ${viewerKey.substring(0, 8)}..., viewId: ${viewId}`);
 
   try {
-    // Use transaction to ensure atomic check-and-set
     await runTransaction(db, async (transaction) => {
       const viewRef = doc(db, 'pollViews', viewId);
       const viewSnap = await transaction.get(viewRef);
@@ -34,37 +33,29 @@ export async function trackPollView(pollId, userId) {
           pollId,
           viewerId: viewerKey,
           userId: userId || null,
-          firstViewedAt: new Date(),
-          lastViewedAt: new Date(),
+          firstViewedAt: serverTimestamp(),
+          lastViewedAt: serverTimestamp(),
           viewCount: 1
         });
         transaction.update(doc(db, 'polls', pollId), {
           totalViews: increment(1),
-          lastViewedAt: new Date()
+          lastViewedAt: serverTimestamp()
         });
       } else {
         const data = viewSnap.data();
-        log(`Repeat view from this device – viewCount previously ${data.viewCount}, not incrementing totalViews`);
+        log(`Repeat view – viewCount was ${data.viewCount}, not incrementing totalViews`);
         transaction.update(viewRef, {
-          lastViewedAt: new Date(),
+          lastViewedAt: serverTimestamp(),
           viewCount: increment(1)
         });
-        // Do NOT increment totalViews again
       }
     });
     log('View tracking transaction completed successfully');
-    // Track interaction for analytics (non-critical)
     await trackUserInteraction(userId || viewerKey, 'view', { pollId, category: 'poll_view' });
     return true;
   } catch (err) {
     error('View tracking transaction failed:', err.code, err.message);
-    // Fallback: try to increment totalViews directly (to at least count the view)
-    try {
-      log('Fallback: directly incrementing totalViews');
-      await updateDoc(doc(db, 'polls', pollId), { totalViews: increment(1), lastViewedAt: new Date() });
-    } catch (fallbackErr) {
-      error('Fallback also failed:', fallbackErr);
-    }
+    // Fallback removed to avoid double‑counting. Only log the error.
     return false;
   }
 }

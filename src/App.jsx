@@ -1,6 +1,8 @@
+// src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AccountProvider } from './contexts/AccountContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
@@ -20,7 +22,8 @@ import SearchPage from './pages/SearchPage';
 import ExplorePage from './pages/ExplorePage';
 import TeamManagementPage from './pages/TeamManagementPage';
 import UpgradePage from './pages/UpgradePage';
-import NotificationsPage from './pages/NotificationsPage';   // <-- NEW
+import NotificationsPage from './pages/NotificationsPage';
+import AcceptInvite from './pages/AcceptInvite';
 // New pages
 import FAQ from './pages/FAQ';
 import Blog from './pages/Blog';
@@ -71,6 +74,7 @@ function AppRoutes() {
         <Route path="/register" element={<PageWrapper><Register /></PageWrapper>} />
         <Route path="/reset-password" element={<PageWrapper><ResetPassword /></PageWrapper>} />
         <Route path="/verify-email" element={<PageWrapper><VerifyEmail /></PageWrapper>} />
+        <Route path="/accept-invite" element={<PageWrapper><AcceptInvite /></PageWrapper>} />
 
         {/* New info pages */}
         <Route path="/faq" element={<PageWrapper><FAQ /></PageWrapper>} />
@@ -102,13 +106,15 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <div className="min-h-screen flex flex-col">
-        <Navbar />
-        <main className="flex-grow">
-          <AppRoutes />
-        </main>
-        <Footer />
-      </div>
+      <AccountProvider>
+        <div className="min-h-screen flex flex-col">
+          <Navbar />
+          <main className="flex-grow">
+            <AppRoutes />
+          </main>
+          <Footer />
+        </div>
+      </AccountProvider>
     </AuthProvider>
   );
 }

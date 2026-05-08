@@ -44,17 +44,7 @@ export const POLL_TYPE_CONFIGS = {
     requiresMedia: true,
     description: 'Compare items side by side'
   },
-  targeted: {
-    icon: 'people',
-    color: '#5856d6',
-    gradient: ['#1a2a3a', '#2a3a5a'],
-    badgeColor: '#5856d6',
-    accentColor: '#5856d6',
-    minOptions: 2,
-    maxOptions: 6,
-    requiresMedia: false,
-    description: 'Target specific audience demographics'
-  },
+  
   live: {
     icon: 'radio',
     color: '#ff3b30',

@@ -3,27 +3,29 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
 import { db } from '../lib/firebase';
 import {
   collection,
   doc,
   onSnapshot,
-  addDoc,
   updateDoc,
   deleteDoc,
   getDoc,
-  setDoc,
   serverTimestamp,
-  arrayUnion,
   query,
   where,
   getDocs
 } from 'firebase/firestore';
-import { hasTeamManagement } from '../lib/tierUtils';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../lib/firebase';
+import { canManageTeam } from '../lib/permissions';
 import { Users, UserPlus, Trash2, Crown, Shield, UserCog, Mail, Check, AlertCircle } from 'lucide-react';
 
-// Role icons and badges
+const createInvitationCall = httpsCallable(functions, 'createInvitation');
+
 const roleConfig = {
+  owner: { icon: Crown, label: 'Owner', color: 'from-amber-600 to-amber-700', bg: 'bg-amber-100', text: 'text-amber-800' },
   admin: { icon: Crown, label: 'Admin', color: 'from-amber-500 to-orange-500', bg: 'bg-amber-50', text: 'text-amber-700' },
   poll_manager: { icon: UserCog, label: 'Poll Manager', color: 'from-blue-500 to-cyan-500', bg: 'bg-blue-50', text: 'text-blue-700' },
   analyst: { icon: Shield, label: 'Analyst', color: 'from-emerald-500 to-teal-500', bg: 'bg-emerald-50', text: 'text-emerald-700' },
@@ -47,6 +49,8 @@ const Toast = ({ message, type, onClose }) => (
 
 export default function TeamManagementPage() {
   const { user } = useAuth();
+  const accountContext = useAccount();
+  const { activeAccount, organizations } = accountContext || { activeAccount: null, organizations: [] };
   const navigate = useNavigate();
   const [members, setMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -56,42 +60,26 @@ export default function TeamManagementPage() {
   const [toast, setToast] = useState(null);
   const [removingId, setRemovingId] = useState(null);
   const [changingRoleId, setChangingRoleId] = useState(null);
-  const [userRole, setUserRole] = useState(null); // 'admin', 'poll_manager', etc.
+  const [userRole, setUserRole] = useState(null);
 
   const showToast = (message, type) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Ensure organization document exists (creates if missing)
-  useEffect(() => {
-    const ensureOrgDoc = async () => {
-      if (!user || !hasTeamManagement(user.tier)) return;
-      const orgRef = doc(db, 'organizations', user.uid);
-      try {
-        const snap = await getDoc(orgRef);
-        if (!snap.exists()) {
-          await setDoc(orgRef, {
-            name: user.displayName || user.email,
-            createdAt: serverTimestamp(),
-            ownerId: user.uid,
-          });
-        }
-      } catch (err) {
-        console.warn('Could not create organization document:', err.message);
-      }
-    };
-    ensureOrgDoc();
-  }, [user]);
+  // Get current organization ID from active account
+  const orgId = activeAccount !== 'personal' ? activeAccount : null;
+  const isOwner = orgId ? user?.memberships?.[orgId]?.role === 'owner' : false;
+  const isAdmin = orgId ? (user?.memberships?.[orgId]?.role === 'admin' || isOwner) : false;
 
-  // Real‑time listener for team members
+  // Fetch team members from the organization's `team` subcollection
   useEffect(() => {
-    if (!user || !hasTeamManagement(user.tier)) {
+    if (!orgId || (!isAdmin && !isOwner)) {
       setLoading(false);
       return;
     }
 
-    const teamRef = collection(db, 'organizations', user.uid, 'team');
+    const teamRef = collection(db, 'organizations', orgId, 'team');
     const unsubscribe = onSnapshot(teamRef, async (snapshot) => {
       const membersList = await Promise.all(snapshot.docs.map(async (docSnap) => {
         const data = docSnap.data();
@@ -107,8 +95,6 @@ export default function TeamManagementPage() {
         };
       }));
       setMembers(membersList);
-
-      // Determine current user's role
       const currentMember = membersList.find(m => m.id === user.uid);
       setUserRole(currentMember?.role || null);
       setLoading(false);
@@ -119,11 +105,11 @@ export default function TeamManagementPage() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [orgId, user?.uid, isAdmin, isOwner]);
 
   const handleInvite = async () => {
-    if (!userRole || userRole !== 'admin') {
-      showToast('Only admins can invite members', 'error');
+    if (!isAdmin && !isOwner) {
+      showToast('Only admins and owners can invite members', 'error');
       return;
     }
     if (!inviteEmail.trim()) {
@@ -140,48 +126,35 @@ export default function TeamManagementPage() {
     }
     setInviting(true);
     try {
-      // Find user by email
-      const usersQuery = query(collection(db, 'users'), where('email', '==', inviteEmail.toLowerCase()));
-      const userSnap = await getDocs(usersQuery);
-      if (userSnap.empty) {
-        showToast('User not found. They must register on PollMeNow first.', 'error');
-        return;
-      }
-      const targetUserId = userSnap.docs[0].id;
-      const teamRef = collection(db, 'organizations', user.uid, 'team');
-      await addDoc(teamRef, {
-        email: inviteEmail.toLowerCase(),
-        role: inviteRole,
-        addedAt: serverTimestamp(),
-        invitedBy: user.uid,
-      });
-      // Update the invited user's organizations array
-      await updateDoc(doc(db, 'users', targetUserId), {
-        organizations: arrayUnion({
-          id: user.uid,
-          role: inviteRole,
-          name: user.displayName || user.email
-        })
-      });
-      setInviteEmail('');
+      await createInvitationCall({ email: inviteEmail, role: inviteRole, orgId });
       showToast(`Invitation sent to ${inviteEmail}`, 'success');
+      setInviteEmail('');
     } catch (err) {
       console.error(err);
-      showToast('Failed to invite user', 'error');
+      showToast(err.message || 'Failed to send invitation', 'error');
     } finally {
       setInviting(false);
     }
   };
 
   const handleRemove = async (member) => {
-    if (userRole !== 'admin') {
-      showToast('Only admins can remove members', 'error');
+    if (!isAdmin && !isOwner) {
+      showToast('Only admins and owners can remove members', 'error');
+      return;
+    }
+    if (member.role === 'owner') {
+      showToast('Cannot remove the organization owner.', 'error');
       return;
     }
     if (!window.confirm(`Remove ${member.name} from your team?`)) return;
     setRemovingId(member.id);
     try {
-      await deleteDoc(doc(db, 'organizations', user.uid, 'team', member.id));
+      await deleteDoc(doc(db, 'organizations', orgId, 'team', member.id));
+      // Also remove membership from user document
+      const userRef = doc(db, 'users', member.id);
+      await updateDoc(userRef, {
+        [`memberships.${orgId}`]: deleteField(),
+      });
       showToast(`${member.name} removed from team`, 'success');
     } catch (err) {
       showToast('Failed to remove member', 'error');
@@ -191,13 +164,18 @@ export default function TeamManagementPage() {
   };
 
   const handleRoleChange = async (memberId, newRole) => {
-    if (userRole !== 'admin') {
-      showToast('Only admins can change roles', 'error');
+    if (!isAdmin && !isOwner) {
+      showToast('Only admins and owners can change roles', 'error');
       return;
     }
     setChangingRoleId(memberId);
     try {
-      await updateDoc(doc(db, 'organizations', user.uid, 'team', memberId), { role: newRole });
+      await updateDoc(doc(db, 'organizations', orgId, 'team', memberId), { role: newRole });
+      // Also update membership in user document
+      const userRef = doc(db, 'users', memberId);
+      await updateDoc(userRef, {
+        [`memberships.${orgId}.role`]: newRole,
+      });
       showToast(`Role updated successfully`, 'success');
     } catch (err) {
       showToast('Failed to update role', 'error');
@@ -206,7 +184,6 @@ export default function TeamManagementPage() {
     }
   };
 
-  // Check if user has Organization tier
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -224,7 +201,7 @@ export default function TeamManagementPage() {
     );
   }
 
-  if (!hasTeamManagement(user?.tier)) {
+  if (!orgId || (!isAdmin && !isOwner)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="text-center max-w-md">
@@ -232,11 +209,10 @@ export default function TeamManagementPage() {
             <Crown size={32} className="text-primary" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Team Management</h2>
-          <p className="text-gray-500 mb-6">Team management is available for Organization tier only.</p>
-          <Link to="/upgrade" className="inline-flex items-center gap-2 bg-gradient-to-r from-primary to-secondary text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
-            Upgrade to Organization
+          <p className="text-gray-500 mb-6">You need to be an admin or owner of an organization to manage its team.</p>
+          <Link to="/dashboard" className="inline-flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
+            Go to Dashboard
           </Link>
-          <p className="text-xs text-gray-400 mt-4">Invite team members, assign roles, and collaborate.</p>
         </div>
       </div>
     );
@@ -253,7 +229,7 @@ export default function TeamManagementPage() {
     );
   }
 
-  const isAdmin = userRole === 'admin';
+  const canInvite = isAdmin || isOwner;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6">
@@ -277,8 +253,8 @@ export default function TeamManagementPage() {
           <p className="text-gray-500 text-sm pl-14">Manage your team members, assign roles, and control access.</p>
         </motion.div>
 
-        {/* Invite Card – only visible to admins */}
-        {isAdmin && (
+        {/* Invite Card – only visible to admins/owners */}
+        {canInvite && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -330,7 +306,7 @@ export default function TeamManagementPage() {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-3">
-              The user must have a PollMeNow account. They'll receive an email notification.
+              The user must have a PollMeNow account. They'll receive an email notification (test mode – check console).
             </p>
           </motion.div>
         )}
@@ -348,7 +324,7 @@ export default function TeamManagementPage() {
               <h2 className="text-lg font-semibold text-gray-900">Team Members</h2>
               <span className="text-sm text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{members.length}</span>
             </div>
-            {!isAdmin && userRole && (
+            {!canInvite && (
               <span className="text-xs text-gray-500 italic">View only</span>
             )}
           </div>
@@ -359,16 +335,17 @@ export default function TeamManagementPage() {
                 <Users className="w-8 h-8 text-gray-400" />
               </div>
               <p className="text-gray-500 font-medium">No team members yet</p>
-              {isAdmin && (
+              {canInvite && (
                 <p className="text-sm text-gray-400">Invite your first member using the form above.</p>
               )}
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
               {members.map((member, idx) => {
-                const RoleIcon = roleConfig[member.role]?.icon || Users;
-                const roleConfigItem = roleConfig[member.role] || roleConfig.member;
+                const roleConf = roleConfig[member.role] || roleConfig.member;
+                const RoleIcon = roleConf.icon;
                 const isCurrentUser = member.id === user.uid;
+                const isOwnerMember = member.role === 'owner';
                 return (
                   <motion.div
                     key={member.id}
@@ -394,11 +371,11 @@ export default function TeamManagementPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 ml-13 sm:ml-0">
-                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${roleConfigItem.bg} ${roleConfigItem.text}`}>
+                      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${roleConf.bg} ${roleConf.text}`}>
                         <RoleIcon size={12} />
-                        <span>{roleConfigItem.label}</span>
+                        <span>{roleConf.label}</span>
                       </div>
-                      {isAdmin && !isCurrentUser && (
+                      {canInvite && !isCurrentUser && !isOwnerMember && (
                         <select
                           value={member.role}
                           onChange={(e) => handleRoleChange(member.id, e.target.value)}
@@ -411,7 +388,7 @@ export default function TeamManagementPage() {
                           <option value="admin">Admin</option>
                         </select>
                       )}
-                      {isAdmin && !isCurrentUser && (
+                      {canInvite && !isCurrentUser && !isOwnerMember && (
                         <button
                           onClick={() => handleRemove(member)}
                           disabled={removingId === member.id}
@@ -445,7 +422,8 @@ export default function TeamManagementPage() {
             <h3 className="text-sm font-semibold text-gray-900">Role Permissions</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-600">
-            <div className="flex items-start gap-2"><Crown size={12} className="text-amber-500 shrink-0 mt-0.5" /><span><span className="font-semibold">Admin:</span> Full access – manage members, all polls, billing, settings</span></div>
+            <div className="flex items-start gap-2"><Crown size={12} className="text-amber-600 shrink-0 mt-0.5" /><span><span className="font-semibold">Owner:</span> Full control – manage everything, delete organization, transfer ownership</span></div>
+            <div className="flex items-start gap-2"><Crown size={12} className="text-amber-500 shrink-0 mt-0.5" /><span><span className="font-semibold">Admin:</span> Full access except delete org – manage members, all polls, billing, settings</span></div>
             <div className="flex items-start gap-2"><UserCog size={12} className="text-blue-500 shrink-0 mt-0.5" /><span><span className="font-semibold">Poll Manager:</span> Create, edit, delete polls – view analytics</span></div>
             <div className="flex items-start gap-2"><Shield size={12} className="text-emerald-500 shrink-0 mt-0.5" /><span><span className="font-semibold">Analyst:</span> View only – polls and analytics (no edits)</span></div>
             <div className="flex items-start gap-2"><Users size={12} className="text-gray-500 shrink-0 mt-0.5" /><span><span className="font-semibold">Member:</span> Basic access – create polls (read‑only for others)</span></div>
