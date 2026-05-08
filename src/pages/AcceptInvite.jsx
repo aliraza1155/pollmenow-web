@@ -31,9 +31,11 @@ export default function AcceptInvite() {
     setAccepting(true);
     try {
       await acceptInvitationCall({ token, orgId });
-      await refreshUser(); // forces AccountContext to reload memberships
-      setStatus('success');
-      setTimeout(() => navigate('/dashboard'), 2000);
+      await refreshUser(); // attempts to update state
+
+      // Force a hard reload to ensure the navbar's account switcher picks up the new membership
+      window.location.href = '/dashboard';
+      // No need to call navigate or setStatus after reload
     } catch (err) {
       console.error(err);
       setStatus('error');
@@ -70,10 +72,7 @@ export default function AcceptInvite() {
     );
   }
 
-  if (status === 'success') {
-    return <div className="text-center py-20 text-green-600 text-xl">✅ Invitation accepted! Redirecting...</div>;
-  }
-
+  // User is logged in, show accept button
   if (status === 'error') {
     return (
       <div className="text-center py-20">
