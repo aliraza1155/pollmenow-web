@@ -96,8 +96,7 @@ function PaymentForm({ plan, onSuccess, showToast }) {
       <button
         type="submit"
         disabled={loading}
-        className="pmn-btn-primary w-full justify-center mt-4"
-        style={{ background: loading ? '#e8e8ee' : 'linear-gradient(135deg,#6C5CE7,#a855f7)', color: loading ? '#aaa' : '#fff', cursor: loading ? 'not-allowed' : 'pointer' }}
+        className="w-full justify-center mt-4 bg-gradient-to-r from-primary to-secondary text-white rounded-xl py-3 font-bold shadow-md hover:shadow-lg transition disabled:opacity-50"
       >
         {loading ? 'Processing...' : `Pay $${plan.price}`}
       </button>
@@ -120,6 +119,7 @@ export default function UpgradePage() {
   };
 
   const currentTier = user?.tier || 'free';
+
   const isCurrentPlan = (planTier) => planTier === currentTier;
 
   const handleSelectPlan = async (plan) => {
@@ -169,7 +169,6 @@ export default function UpgradePage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Toast notifications */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -262,7 +261,7 @@ export default function UpgradePage() {
                 disabled={loading}
                 className="mt-6 w-full bg-gradient-to-r from-purple-600 to-pink-500 text-white py-2 rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50"
               >
-                Upgrade
+                Upgrade to Premium
               </button>
             )}
           </div>
@@ -285,9 +284,9 @@ export default function UpgradePage() {
               <button
                 onClick={() => handleSelectPlan(activeOrg)}
                 disabled={loading}
-                className="mt-6 w-full border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-50 transition disabled:opacity-50"
+                className="mt-6 w-full bg-gradient-to-r from-primary to-secondary text-white py-2 rounded-lg font-semibold shadow-md hover:shadow-lg transition disabled:opacity-50"
               >
-                Contact sales
+                Upgrade to Organization
               </button>
             )}
           </div>
