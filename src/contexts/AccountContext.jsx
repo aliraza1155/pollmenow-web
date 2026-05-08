@@ -1,44 +1,58 @@
 // src/contexts/AccountContext.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 const AccountContext = createContext();
 
 export function AccountProvider({ children }) {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser: refreshAuthUser } = useAuth();
   const [activeAccount, setActiveAccount] = useState(null);
   const [organizations, setOrganizations] = useState([]);
 
-  useEffect(() => {
+  // Function to load user data from Firestore (used both on mount and after refresh)
+  const loadUserData = async () => {
     if (!user) {
       setActiveAccount(null);
       setOrganizations([]);
       return;
     }
-    const memberships = user.memberships || {};
-    const orgs = Object.entries(memberships).map(([id, data]) => ({
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    const data = userDoc.data();
+    const memberships = data?.memberships || {};
+    const orgs = Object.entries(memberships).map(([id, membership]) => ({
       id,
-      name: data.name,
-      role: data.role,
+      name: membership.name,
+      role: membership.role,
     }));
     setOrganizations(orgs);
-    let active = user.activeAccount;
+    let active = data?.activeAccount;
     if (!active || (active !== 'personal' && !memberships[active])) {
       active = 'personal';
     }
     setActiveAccount(active);
+  };
+
+  // Initial load when user changes
+  useEffect(() => {
+    loadUserData();
   }, [user]);
 
   const switchAccount = async (accountId) => {
     if (!user) return;
     await updateDoc(doc(db, 'users', user.uid), { activeAccount: accountId });
-    await refreshUser();
+    await refreshAuthUser();   // refresh AuthContext
+    await loadUserData();      // refresh AccountContext
+  };
+
+  // Expose a refresh function that can be called from components (e.g., after accepting an invitation)
+  const refreshUser = async () => {
+    await loadUserData();
   };
 
   return (
-    <AccountContext.Provider value={{ activeAccount, organizations, switchAccount }}>
+    <AccountContext.Provider value={{ activeAccount, organizations, switchAccount, refreshUser }}>
       {children}
     </AccountContext.Provider>
   );
