@@ -3,13 +3,12 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from 'firebase/auth';
 import { doc, setDoc, getDocs, query, collection, where, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions } from '../lib/firebase';
+import { auth, db } from '../lib/firebase'; // acceptInvitationCall removed
 import { detectLocation } from '../lib/location';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { motion } from 'framer-motion';
 
-const acceptInvitationCall = httpsCallable(functions, 'acceptInvitation');
+// Removed acceptInvitationCall – no auto‑accept
 
 const FEATURES = [
   'AI-generated polls in under 10 seconds',
@@ -69,6 +68,7 @@ export default function Register() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const prefilledEmail = searchParams.get('email') || '';
+  const redirect = searchParams.get('redirect') || null; // optional redirect after verification
 
   const [userType, setUserType] = useState('individual');
   const [email, setEmail] = useState(prefilledEmail);
@@ -154,7 +154,6 @@ export default function Register() {
       alert('Organization name is required');
       return;
     }
-    // ✅ Phone validation only for individual accounts
     if (userType === 'individual' && !validatePhone(phone)) {
       alert('Please enter a valid phone number with country code (e.g., +1234567890)');
       return;
@@ -200,7 +199,7 @@ export default function Register() {
       }
       await setDoc(doc(db, 'users', user.uid), userData);
 
-      // ✅ If organization, create organization document and set owner membership
+      // If organization, create organization document and set owner membership
       if (userType === 'organization') {
         const orgRef = doc(db, 'organizations', user.uid);
         await setDoc(orgRef, {
@@ -209,33 +208,22 @@ export default function Register() {
           createdAt: serverTimestamp(),
           settings: { allowMemberInvites: true, defaultRole: 'member' },
         });
-        // Add membership for the owner
         await updateDoc(doc(db, 'users', user.uid), {
           [`memberships.${user.uid}`]: {
             role: 'owner',
             name: orgName,
             joinedAt: serverTimestamp(),
           },
-          activeAccount: user.uid, // switch to organization context immediately
+          activeAccount: user.uid,
         });
       }
 
-      // ✅ Auto‑accept pending invitation after registration
-      const pendingInvite = sessionStorage.getItem('pendingInvite');
-      if (pendingInvite) {
-        try {
-          const { email: inviteEmail, orgId } = JSON.parse(pendingInvite);
-          if (inviteEmail === email) {
-            await acceptInvitationCall({ email, orgId });
-            sessionStorage.removeItem('pendingInvite');
-          }
-        } catch (err) {
-          console.warn('Auto‑accept failed:', err);
-        }
-      }
-
+      // No auto‑accept of invitations – user must click the invite link after registration/login
       await sendEmailVerification(user);
-      navigate('/verify-email', { state: { email } });
+
+      // If there's a redirect parameter, store it for after email verification? Not implemented for simplicity.
+      // The user will need to click the invitation link again (they will, because it's in their email).
+      navigate('/verify-email', { state: { email, redirect } });
     } catch (err) {
       let msg = 'Registration failed';
       if (err.code === 'auth/email-already-in-use') msg = 'Email already in use';

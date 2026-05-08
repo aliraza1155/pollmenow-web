@@ -1,6 +1,5 @@
-// src/pages/AcceptInvite.jsx
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccount } from '../contexts/AccountContext';
 import { httpsCallable } from 'firebase/functions';
@@ -10,70 +9,104 @@ const acceptInvitationCall = httpsCallable(functions, 'acceptInvitation');
 
 export default function AcceptInvite() {
   const [searchParams] = useSearchParams();
-  const email = searchParams.get('email');
+  const token = searchParams.get('token');
   const orgId = searchParams.get('orgId');
   const { user, loading: authLoading } = useAuth();
   const { refreshUser } = useAccount();
   const navigate = useNavigate();
-  const [status, setStatus] = useState('processing');
+  const [status, setStatus] = useState('loading');
+  const [accepting, setAccepting] = useState(false);
 
   useEffect(() => {
-    // 1. Invalid link (missing parameters)
-    if (!email || !orgId) {
+    if (!token || !orgId) {
       setStatus('invalid');
       return;
     }
+    // Wait for Firebase to determine auth state
+    if (authLoading) return;
+    setStatus('ready');
+  }, [token, orgId, authLoading, user]);
 
-    // 2. Still determining authentication state – wait
-    if (authLoading) {
-      return;
+  const handleAccept = async () => {
+    setAccepting(true);
+    try {
+      await acceptInvitationCall({ token, orgId });
+      await refreshUser();
+      // Show success briefly then redirect
+      setStatus('success');
+      setTimeout(() => navigate('/dashboard'), 2000);
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      setAccepting(false);
     }
+  };
 
-    // 3. User is NOT logged in
-    if (!user) {
-      // Store invitation details for later (will be used after registration/login)
-      sessionStorage.setItem('pendingInvite', JSON.stringify({ email, orgId }));
+  const handleLoginRedirect = () => {
+    // Save the current URL as return path
+    sessionStorage.setItem('returnTo', window.location.pathname + window.location.search);
+    navigate('/login');
+  };
 
-      // Try to see if an account with this email already exists by checking Firestore? 
-      // That would require an extra call. Simpler: send them to /login?email=... 
-      // and let the login page redirect to register if needed. But we already have /register?email=
-      // However, if the user already has an account but is just logged out, they should go to login.
-      // To solve this, we can check if an account exists by calling a cloud function? 
-      // But that adds complexity. For a smooth experience, we assume the user knows their status.
-      // Most platforms send unregistered users to signup, registered to login.
-      // Let's do this: redirect to /login?email=... with a flag that says "you have an invitation".
-      // If the user logs in successfully, we can auto‑accept.
-      // But we already have logic in the register page that auto‑accepts after registration.
-      // For login, we need to also auto‑accept after login. That would require a similar `pendingInvite` 
-      // check inside the login page. To keep it simple, let's redirect to /register?email=... 
-      // because even if the user already has an account, they can sign in from there.
-      // The register page has a "Already have an account? Sign in" link.
-      // This is acceptable.
-      navigate(`/register?email=${encodeURIComponent(email)}`);
-      return;
-    }
-
-    // 4. User IS logged in – accept the invitation
-    const accept = async () => {
-      setStatus('accepting');
-      try {
-        await acceptInvitationCall({ email, orgId });
-        setStatus('success');
-        // Refresh user context so the new organization membership appears immediately
-        await refreshUser();
-        setTimeout(() => navigate('/dashboard'), 2000);
-      } catch (err) {
-        console.error(err);
-        setStatus('error');
-      }
-    };
-    accept();
-  }, [email, orgId, user, authLoading, navigate, refreshUser]);
-
-  if (status === 'processing') return <div className="text-center py-20">Loading invitation details...</div>;
-  if (status === 'accepting') return <div className="text-center py-20">Accepting invitation...</div>;
+  if (status === 'loading') return <div className="text-center py-20">Loading invitation...</div>;
   if (status === 'invalid') return <div className="text-center py-20 text-red-500">Invalid invitation link.</div>;
-  if (status === 'error') return <div className="text-center py-20 text-red-500">Failed to accept invitation. Please try again or contact support.</div>;
-  if (status === 'success') return <div className="text-center py-20 text-green-600">✅ Invitation accepted! Redirecting to dashboard...</div>;
-  return null;
+
+  if (!user) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
+          <h2 className="text-2xl font-bold mb-4">Accept Invitation</h2>
+          <p className="text-gray-600 mb-6">
+            You need to sign in to accept this invitation. If you don’t have an account, you can create one first.
+          </p>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={handleLoginRedirect}
+              className="bg-primary text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-dark"
+            >
+              Sign in
+            </button>
+            <Link
+              to={`/register?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+              className="border border-primary text-primary px-6 py-2 rounded-lg font-semibold hover:bg-primary/10"
+            >
+              Create account
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // User is logged in
+  if (status === 'success') {
+    return <div className="text-center py-20 text-green-600 text-xl">✅ Invitation accepted! Redirecting...</div>;
+  }
+
+  if (status === 'error') {
+    return (
+      <div className="text-center py-20">
+        <div className="text-red-500 mb-4">Failed to accept invitation. Please try again.</div>
+        <button onClick={handleAccept} className="bg-primary text-white px-6 py-2 rounded-lg">Retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
+        <h2 className="text-2xl font-bold mb-4">Accept Invitation</h2>
+        <p className="text-gray-600 mb-6">
+          You have been invited to join an organization on PollMeNow.
+        </p>
+        <button
+          onClick={handleAccept}
+          disabled={accepting}
+          className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-md hover:shadow-lg disabled:opacity-50"
+        >
+          {accepting ? 'Accepting...' : 'Accept Invitation'}
+        </button>
+      </div>
+    </div>
+  );
 }

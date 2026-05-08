@@ -1,6 +1,6 @@
 // src/pages/Login.jsx
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { motion } from 'framer-motion';
@@ -68,6 +68,8 @@ function AuthLeft() {
 }
 
 export default function Login() {
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get('redirect') || '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -85,10 +87,10 @@ export default function Login() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
       if (!cred.user.emailVerified) {
-        navigate('/verify-email', { state: { email } });
+        navigate('/verify-email', { state: { email, redirect } });
         return;
       }
-      navigate('/');
+      navigate(redirect);
     } catch (err) {
       setError(AUTH_ERROR_MSGS[err.code] || 'Login failed. Please try again.');
     } finally {
@@ -100,7 +102,7 @@ export default function Login() {
     setError('');
     try {
       await signInWithPopup(auth, new GoogleAuthProvider());
-      navigate('/');
+      navigate(redirect);
     } catch (err) {
       if (err.code !== 'auth/popup-closed-by-user') setError('Google sign-in failed.');
     }
@@ -108,10 +110,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-white">
-      {/* Left Panel - Only visible on large screens */}
       <AuthLeft />
 
-      {/* Right Panel - Form */}
       <div className="flex-1 flex items-center justify-center px-6 py-12 lg:px-12">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
