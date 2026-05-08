@@ -1,3 +1,4 @@
+// src/pages/AcceptInvite.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,7 +23,6 @@ export default function AcceptInvite() {
       setStatus('invalid');
       return;
     }
-    // Wait for Firebase to determine auth state
     if (authLoading) return;
     setStatus('ready');
   }, [token, orgId, authLoading, user]);
@@ -31,8 +31,7 @@ export default function AcceptInvite() {
     setAccepting(true);
     try {
       await acceptInvitationCall({ token, orgId });
-      await refreshUser();
-      // Show success briefly then redirect
+      await refreshUser(); // forces AccountContext to reload memberships
       setStatus('success');
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
@@ -43,7 +42,6 @@ export default function AcceptInvite() {
   };
 
   const handleLoginRedirect = () => {
-    // Save the current URL as return path
     sessionStorage.setItem('returnTo', window.location.pathname + window.location.search);
     navigate('/login');
   };
@@ -60,16 +58,10 @@ export default function AcceptInvite() {
             You need to sign in to accept this invitation. If you don’t have an account, you can create one first.
           </p>
           <div className="flex gap-4 justify-center">
-            <button
-              onClick={handleLoginRedirect}
-              className="bg-primary text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-dark"
-            >
+            <button onClick={handleLoginRedirect} className="bg-primary text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-dark">
               Sign in
             </button>
-            <Link
-              to={`/register?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-              className="border border-primary text-primary px-6 py-2 rounded-lg font-semibold hover:bg-primary/10"
-            >
+            <Link to={`/register?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`} className="border border-primary text-primary px-6 py-2 rounded-lg font-semibold hover:bg-primary/10">
               Create account
             </Link>
           </div>
@@ -78,7 +70,6 @@ export default function AcceptInvite() {
     );
   }
 
-  // User is logged in
   if (status === 'success') {
     return <div className="text-center py-20 text-green-600 text-xl">✅ Invitation accepted! Redirecting...</div>;
   }
@@ -96,14 +87,8 @@ export default function AcceptInvite() {
     <div className="min-h-[60vh] flex items-center justify-center">
       <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
         <h2 className="text-2xl font-bold mb-4">Accept Invitation</h2>
-        <p className="text-gray-600 mb-6">
-          You have been invited to join an organization on PollMeNow.
-        </p>
-        <button
-          onClick={handleAccept}
-          disabled={accepting}
-          className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-md hover:shadow-lg disabled:opacity-50"
-        >
+        <p className="text-gray-600 mb-6">You have been invited to join an organization on PollMeNow.</p>
+        <button onClick={handleAccept} disabled={accepting} className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-md hover:shadow-lg disabled:opacity-50">
           {accepting ? 'Accepting...' : 'Accept Invitation'}
         </button>
       </div>

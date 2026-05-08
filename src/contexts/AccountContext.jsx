@@ -11,7 +11,6 @@ export function AccountProvider({ children }) {
   const [activeAccount, setActiveAccount] = useState(null);
   const [organizations, setOrganizations] = useState([]);
 
-  // Function to load user data from Firestore (used both on mount and after refresh)
   const loadUserData = async () => {
     if (!user) {
       setActiveAccount(null);
@@ -34,7 +33,6 @@ export function AccountProvider({ children }) {
     setActiveAccount(active);
   };
 
-  // Initial load when user changes
   useEffect(() => {
     loadUserData();
   }, [user]);
@@ -42,12 +40,14 @@ export function AccountProvider({ children }) {
   const switchAccount = async (accountId) => {
     if (!user) return;
     await updateDoc(doc(db, 'users', user.uid), { activeAccount: accountId });
-    await refreshAuthUser();   // refresh AuthContext
-    await loadUserData();      // refresh AccountContext
+    await refreshAuthUser();
+    await loadUserData();
   };
 
-  // Expose a refresh function that can be called from components (e.g., after accepting an invitation)
   const refreshUser = async () => {
+    // First refresh the Auth user (this re-fetches the user document and updates AuthContext)
+    await refreshAuthUser();
+    // Then reload local Account state from the fresh user data
     await loadUserData();
   };
 
