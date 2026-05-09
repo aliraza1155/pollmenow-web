@@ -9,7 +9,7 @@ import { getUserVotes } from '../lib/vote';
 import { getMonthlyPollLimit, hasPremiumAnalytics } from '../lib/tierUtils';
 import { getPollAnalytics } from '../lib/analytics';
 import { formatDate, toDate } from '../lib/utils';
-import { canEditPoll, canCreatePoll, canViewAnalytics } from '../lib/permissions'; // added canCreatePoll
+import { canEditPoll, canCreatePoll, canViewAnalytics } from '../lib/permissions';
 
 const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', live:'🔴' };
 
@@ -46,7 +46,7 @@ function SimpleBarChart({ data, xKey, yKey, color = '#6C5CE7' }) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { activeAccount, organizations } = useAccount();
+  const { activeAccount, organizations, hasPersonalAccount } = useAccount(); // added hasPersonalAccount to know if personal account exists
   const navigate = useNavigate();
 
   const [myPolls, setMyPolls] = useState([]);
@@ -56,6 +56,9 @@ export default function DashboardPage() {
   const [deleting, setDeleting] = useState(null);
   const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('all');
+
+  // Organization info when active account is an organization
+  const [organizationInfo, setOrganizationInfo] = useState(null);
 
   // Analytics state
   const [allPolls, setAllPolls] = useState([]);
@@ -70,13 +73,23 @@ export default function DashboardPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  // Load organization info if active account is an organization
+  useEffect(() => {
+    if (activeAccount !== 'personal') {
+      getDoc(doc(db, 'organizations', activeAccount)).then(snap => {
+        if (snap.exists()) setOrganizationInfo(snap.data());
+      }).catch(console.error);
+    } else {
+      setOrganizationInfo(null);
+    }
+  }, [activeAccount]);
+
   // Determine org name for display
   const activeOrg = activeAccount !== 'personal' ? organizations.find(o => o.id === activeAccount) : null;
   const contextName = activeAccount === 'personal' ? 'Personal' : (activeOrg?.name || 'Organization');
 
   // Permission checks
   const canCreate = canCreatePoll(user, activeAccount, activeAccount !== 'personal' ? activeAccount : null);
-  // For analytics tab visibility: personal always true, org requires role check
   let canViewAnalyticsTab = false;
   if (activeAccount === 'personal') {
     canViewAnalyticsTab = true;
@@ -306,16 +319,40 @@ export default function DashboardPage() {
         <div className="lg:grid lg:grid-cols-[260px_1fr] lg:gap-8">
           {/* Sidebar (desktop) */}
           <aside className="hidden lg:block">
-            <div className="bg-white rounded-xl border border-gray-100 p-5 text-center mb-4 shadow-sm">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-r from-primary to-secondary mx-auto flex items-center justify-center text-white text-2xl font-bold overflow-hidden mb-3">
-                {user.profileImage ? <img src={user.profileImage} alt="" className="w-full h-full object-cover" /> : (user.name?.[0] || 'U').toUpperCase()}
+            {activeAccount === 'personal' ? (
+              // Personal account card
+              <div className="bg-white rounded-xl border border-gray-100 p-5 text-center mb-4 shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-r from-primary to-secondary mx-auto flex items-center justify-center text-white text-2xl font-bold overflow-hidden mb-3">
+                  {user.profileImage ? <img src={user.profileImage} alt="" className="w-full h-full object-cover" /> : (user.name?.[0] || 'U').toUpperCase()}
+                </div>
+                <p className="font-bold text-gray-800">{user.name}</p>
+                <p className="text-xs text-gray-400">@{user.username || 'user'}</p>
+                <span className={`inline-block mt-2 text-xs font-bold px-3 py-1 rounded-full ${user.tier === 'premium' || user.tier === 'organization' ? 'bg-gradient-to-r from-primary to-secondary text-white' : 'bg-gray-100 text-gray-500'}`}>
+                  {(user.tier || 'free').charAt(0).toUpperCase() + (user.tier || 'free').slice(1)}
+                </span>
               </div>
-              <p className="font-bold text-gray-800">{user.name}</p>
-              <p className="text-xs text-gray-400">@{user.username || 'user'}</p>
-              <span className={`inline-block mt-2 text-xs font-bold px-3 py-1 rounded-full ${user.tier === 'premium' || user.tier === 'organization' ? 'bg-gradient-to-r from-primary to-secondary text-white' : 'bg-gray-100 text-gray-500'}`}>
-                {(user.tier || 'free').charAt(0).toUpperCase() + (user.tier || 'free').slice(1)}
-              </span>
-            </div>
+            ) : organizationInfo ? (
+              // Organization card
+              <div className="bg-white rounded-xl border border-gray-100 p-5 text-center mb-4 shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-r from-primary to-secondary mx-auto flex items-center justify-center text-white text-2xl font-bold overflow-hidden mb-3">
+                  {organizationInfo.logo ? <img src={organizationInfo.logo} className="w-full h-full object-cover" /> : (organizationInfo.name?.[0] || 'O').toUpperCase()}
+                </div>
+                <p className="font-bold text-gray-800">{organizationInfo.name}</p>
+                <p className="text-xs text-gray-400">Organization</p>
+                <span className="inline-block mt-2 text-xs font-bold px-3 py-1 rounded-full bg-gray-100 text-gray-500">
+                  {organizationInfo.tier === 'premium' ? 'Premium' : 'Team'}
+                </span>
+              </div>
+            ) : (
+              // Fallback – should not happen
+              <div className="bg-white rounded-xl border border-gray-100 p-5 text-center mb-4 shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-r from-primary to-secondary mx-auto flex items-center justify-center text-white text-2xl font-bold overflow-hidden mb-3">
+                  {user.name?.[0] || 'U'}
+                </div>
+                <p className="font-bold text-gray-800">{user.name}</p>
+                <p className="text-xs text-gray-400">Loading...</p>
+              </div>
+            )}
 
             {/* Navigation */}
             <div className="bg-white rounded-xl border border-gray-100 p-3 mb-4 shadow-sm">
@@ -335,45 +372,62 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Usage */}
-            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Monthly usage</p>
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>{user.pollsThisMonth || 0} polls used</span>
-                <span>{monthlyLimit === Infinity ? '∞' : monthlyLimit} total</span>
+            {/* Monthly usage – only for personal account */}
+            {activeAccount === 'personal' && (
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Monthly usage</p>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>{user.pollsThisMonth || 0} polls used</span>
+                  <span>{monthlyLimit === Infinity ? '∞' : monthlyLimit} total</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
+                  <div className="h-full rounded-full" style={{ width: `${usagePct}%`, background: usagePct >= 90 ? '#ef4444' : 'linear-gradient(90deg,#6C5CE7,#a855f7)' }} />
+                </div>
+                <p className="text-xs text-gray-500">
+                  {pollsLeft} remaining
+                  {user.tier === 'free' && <Link to="/upgrade" className="text-primary font-semibold ml-1">· Upgrade</Link>}
+                </p>
               </div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
-                <div className="h-full rounded-full" style={{ width: `${usagePct}%`, background: usagePct >= 90 ? '#ef4444' : 'linear-gradient(90deg,#6C5CE7,#a855f7)' }} />
-              </div>
-              <p className="text-xs text-gray-500">
-                {pollsLeft} remaining
-                {user.tier === 'free' && <Link to="/upgrade" className="text-primary font-semibold ml-1">· Upgrade</Link>}
-              </p>
-            </div>
+            )}
           </aside>
 
           {/* Main content */}
           <div>
             {/* Mobile header */}
             <div className="lg:hidden mb-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white text-lg font-bold overflow-hidden">
-                  {user.profileImage ? <img src={user.profileImage} alt="" className="w-full h-full object-cover" /> : (user.name?.[0] || 'U').toUpperCase()}
+              {activeAccount === 'personal' ? (
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white text-lg font-bold overflow-hidden">
+                    {user.profileImage ? <img src={user.profileImage} alt="" className="w-full h-full object-cover" /> : (user.name?.[0] || 'U').toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800">{user.name}</p>
+                    <p className="text-xs text-gray-400">@{user.username || 'user'}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-gray-800">{user.name}</p>
-                  <p className="text-xs text-gray-400">@{user.username || 'user'}</p>
+              ) : organizationInfo && (
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-white text-lg font-bold overflow-hidden">
+                    {organizationInfo.logo ? <img src={organizationInfo.logo} className="w-full h-full object-cover" /> : (organizationInfo.name?.[0] || 'O').toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800">{organizationInfo.name}</p>
+                    <p className="text-xs text-gray-400">Organization</p>
+                  </div>
                 </div>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-100 p-3 mb-4 shadow-sm">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>Monthly polls: {user.pollsThisMonth || 0} / {monthlyLimit === Infinity ? '∞' : monthlyLimit}</span>
-                  {pollsLeft !== '∞' && <span>{pollsLeft} left</span>}
+              )}
+              {/* Monthly usage bar for personal account only (mobile) */}
+              {activeAccount === 'personal' && (
+                <div className="bg-white rounded-xl border border-gray-100 p-3 mb-4 shadow-sm">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Monthly polls: {user.pollsThisMonth || 0} / {monthlyLimit === Infinity ? '∞' : monthlyLimit}</span>
+                    {pollsLeft !== '∞' && <span>{pollsLeft} left</span>}
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${usagePct}%`, background: usagePct >= 90 ? '#ef4444' : 'linear-gradient(90deg,#6C5CE7,#a855f7)' }} />
+                  </div>
                 </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${usagePct}%`, background: usagePct >= 90 ? '#ef4444' : 'linear-gradient(90deg,#6C5CE7,#a855f7)' }} />
-                </div>
-              </div>
+              )}
               <div className="flex gap-2 overflow-x-auto pb-2">
                 {tabs.map(item => (
                   <button
