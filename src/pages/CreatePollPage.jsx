@@ -1,7 +1,8 @@
-// src/pages/CreatePollPage.jsx – Fully responsive, same logic & features + targeting/anonymous mutual exclusion
+// src/pages/CreatePollPage.jsx – Fully responsive, same logic & features + organization context + targeting/anonymous mutual exclusion
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
 import { db, storage } from '../lib/firebase';
 import { doc, addDoc, collection, getDoc, updateDoc, serverTimestamp, Timestamp, increment } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -11,6 +12,7 @@ import { generatePollSuggestions, generatePollFromURL, generateAndUploadImage, g
 import { uploadToFirebaseStorage } from '../lib/upload';
 import MediaPicker from '../components/MediaPicker';
 import { TagInput } from '../components/UI';
+import { canCreatePoll } from '../lib/permissions';
 
 // Basic country list – replace with your full list if needed
 const COUNTRIES = [
@@ -92,15 +94,26 @@ function AiImageButton({ onGenerate, loading, disabled, label = '✨ AI' }) {
 
 export default function CreatePollPage() {
   const { user, refreshUser } = useAuth();
+  const { activeAccount, organizations } = useAccount();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
 
-  // === Core form state ===
+  // Determine context (personal or organization)
+  const isPersonal = activeAccount === 'personal';
+  const activeOrg = isPersonal ? null : organizations.find(o => o.id === activeAccount);
+  const contextType = isPersonal ? 'personal' : 'organization';
+  const orgId = activeOrg?.id || null;
+  const orgRole = activeOrg?.role || null;
+
+  // Permission to create poll in this context
+  const canCreate = canCreatePoll(user, activeAccount, orgId);
+  const [permissionError, setPermissionError] = useState(false);
+
+  // Core form state (unchanged)
   const [question, setQuestion] = useState('');
   const [type, setType] = useState('quick');
   const [visibility, setVisibility] = useState('public');
-  // Anonymous voting is now enabled by default (true) for non-private polls
   const [anonymous, setAnonymous] = useState(true);
   const [category, setCategory] = useState('general');
   const [tags, setTags] = useState([]);
@@ -131,7 +144,7 @@ export default function CreatePollPage() {
   const [scheduledStart, setScheduledStart] = useState('');
   const [scheduledEnd, setScheduledEnd] = useState('');
 
-  // AI generation modals
+  // AI generation modals (unchanged)
   const [showAIOptionsModal, setShowAIOptionsModal] = useState(false);
   const [aiTempOptionsCount, setAiTempOptionsCount] = useState(4);
   const [showUrlInputModal, setShowUrlInputModal] = useState(false);
@@ -139,8 +152,6 @@ export default function CreatePollPage() {
   const [showUrlOptionsModal, setShowUrlOptionsModal] = useState(false);
   const [urlTempType, setUrlTempType] = useState('quick');
   const [urlTempOptionsCount, setUrlTempOptionsCount] = useState(4);
-
-  // Prompt Editor
   const [promptEditorVisible, setPromptEditorVisible] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState('');
   const [originalPrompt, setOriginalPrompt] = useState('');
@@ -160,14 +171,14 @@ export default function CreatePollPage() {
 
   const getAllOptionTexts = () => options.map(opt => opt.text).filter(t => t.trim());
 
-  // When visibility changes to private, force anonymous voting off
+  // When visibility changes to private, force anonymous off
   useEffect(() => {
     if (visibility === 'private') {
       setAnonymous(false);
     }
   }, [visibility]);
 
-  // ========== Mutual exclusion between targeting and anonymous voting ==========
+  // Mutual exclusion between targeting and anonymous
   useEffect(() => {
     if (targeting.enabled && anonymous) {
       setAnonymous(false);
@@ -175,10 +186,16 @@ export default function CreatePollPage() {
     }
   }, [targeting.enabled, anonymous]);
 
-  // When anonymous is true, prevent enabling targeting (disable the targeting toggle)
-  // This is handled by the disabled prop in the targeting toggle.
+  // Check permission for organization context
+  useEffect(() => {
+    if (!isEditing && !isPersonal && !canCreate) {
+      setPermissionError(true);
+    } else {
+      setPermissionError(false);
+    }
+  }, [isPersonal, canCreate, isEditing]);
 
-  // ========== Prompt editor helpers (unchanged) ==========
+  // ========== Prompt editor helpers (unchanged, but use orgId for storage? keep user.uid) ==========
   const openPromptEditor = async (target) => {
     if (!canUseAI) {
       showToast('error', 'AI image generation requires Premium.');
@@ -294,7 +311,7 @@ export default function CreatePollPage() {
     }
   };
 
-  // Image generation handlers
+  // Image generation handlers (unchanged)
   const handleGenerateQuestionImage = () => {
     if (!canUseAI) { showToast('error', 'AI image generation requires Premium.'); return; }
     if (!question.trim()) { showToast('error', 'Enter a question first.'); return; }
@@ -327,7 +344,15 @@ export default function CreatePollPage() {
       const snap = await getDoc(doc(db, 'polls', editId));
       if (!snap.exists()) return;
       const d = snap.data();
-      if (d.creator?.id !== user.uid) { navigate('/dashboard'); return; }
+      // Check ownership: for personal poll, creator.id must match; for org poll, user must be in org
+      if (d.context?.type === 'personal' && d.creator?.id !== user.uid) {
+        navigate('/dashboard');
+        return;
+      }
+      if (d.context?.type === 'organization' && (!user.memberships?.[d.context.orgId] || !['admin', 'owner', 'poll_manager'].includes(user.memberships[d.context.orgId].role))) {
+        navigate('/dashboard');
+        return;
+      }
       setQuestion(d.question || '');
       setType(d.type || 'quick');
       setVisibility(d.visibility || 'public');
@@ -489,6 +514,10 @@ export default function CreatePollPage() {
   // Publish
   const handlePublish = async () => {
     if (!validate()) return;
+    if (!isEditing && !isPersonal && !canCreate) {
+      showToast('error', 'You do not have permission to create polls in this organization.');
+      return;
+    }
     const monthlyLimit = getMonthlyPollLimit(tier);
     if (!isEditing && (user?.pollsThisMonth || 0) >= monthlyLimit) {
       showToast('error', 'Monthly poll limit reached. Upgrade for more.');
@@ -554,6 +583,13 @@ export default function CreatePollPage() {
           verified: user.verified || false,
           profileImage: user.profileImage || null,
           tier: user.tier || 'free',
+          contextType,        // 'personal' or 'organization'
+          orgId: orgId || null,
+          orgRole: orgRole || null,
+        },
+        context: {
+          type: contextType,
+          orgId: orgId || null,
         },
         endsAt,
         totalVotes: isEditing ? undefined : 0,
@@ -586,7 +622,7 @@ export default function CreatePollPage() {
         navigate(`/poll/${editId}`);
       } else {
         const pollRef = await addDoc(collection(db, 'polls'), pollData);
-        // ✅ ALWAYS increment monthly usage, regardless of scheduled status
+        // Always increment monthly usage
         await updateDoc(doc(db, 'users', user.uid), {
           pollsThisMonth: increment(1),
           pollsCreated: increment(1),
@@ -607,7 +643,7 @@ export default function CreatePollPage() {
     }
   };
 
-  // Helper components for targeting and country picker
+  // Helper components for targeting and country picker (unchanged)
   const renderTargeting = () => {
     if (!canUseTargeting) return null;
     const filteredCountries = COUNTRIES.filter(c => c.name.toLowerCase().includes(countrySearch.toLowerCase()));
@@ -679,6 +715,20 @@ export default function CreatePollPage() {
     </div>
   );
 
+  // If organization context and no permission, show error message
+  if (permissionError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="bg-white rounded-2xl p-8 text-center max-w-md">
+          <p className="text-5xl mb-3">🔒</p>
+          <p className="text-xl font-bold text-gray-800 mb-2">Permission Denied</p>
+          <p className="text-gray-500 mb-4">You don't have permission to create polls for this organization.</p>
+          <Link to="/dashboard" className="text-primary underline">Go to Dashboard</Link>
+        </div>
+      </div>
+    );
+  }
+
   const pollsLeft = getMonthlyPollLimit(tier) - (user.pollsThisMonth || 0);
   const usagePct = Math.min(100, ((user.pollsThisMonth || 0) / getMonthlyPollLimit(tier)) * 100);
   const showOptions = type !== 'yesno' && (type !== 'rating' || isMultiOptionRating);
@@ -690,7 +740,6 @@ export default function CreatePollPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Toast */}
       {toast && (
         <div className="fixed top-20 right-4 z-50 max-w-sm animate-fade-up">
           <div className={`rounded-xl px-4 py-3 shadow-lg ${toast.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
@@ -703,6 +752,9 @@ export default function CreatePollPage() {
         <div className="mb-6">
           <h1 className="text-2xl lg:text-3xl font-extrabold text-gray-900 m-0">{isEditing ? 'Edit Poll' : 'Create a New Poll'}</h1>
           <p className="text-sm text-gray-400 mt-1">{isEditing ? 'Update your poll details below.' : 'Fill in the details, or let AI generate a poll for you.'}</p>
+          {!isPersonal && activeOrg && (
+            <p className="text-xs text-primary mt-1">Creating poll for <strong>{activeOrg.name}</strong> (organization)</p>
+          )}
         </div>
 
         {/* Responsive layout: left column (full width on mobile) + right sidebar (below on mobile) */}

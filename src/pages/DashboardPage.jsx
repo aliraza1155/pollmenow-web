@@ -1,4 +1,4 @@
-// src/pages/DashboardPage.jsx – Fully Responsive, with organization support
+// src/pages/DashboardPage.jsx – Fully Responsive, with organization support + role-based access
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,7 +9,7 @@ import { getUserVotes } from '../lib/vote';
 import { getMonthlyPollLimit, hasPremiumAnalytics } from '../lib/tierUtils';
 import { getPollAnalytics } from '../lib/analytics';
 import { formatDate, toDate } from '../lib/utils';
-import { canEditPoll } from '../lib/permissions';
+import { canEditPoll, canCreatePoll, canViewAnalytics } from '../lib/permissions'; // added canCreatePoll
 
 const POLL_TYPE_ICONS = { quick:'⚡', yesno:'✅', rating:'⭐', comparison:'⚖', live:'🔴' };
 
@@ -74,6 +74,17 @@ export default function DashboardPage() {
   const activeOrg = activeAccount !== 'personal' ? organizations.find(o => o.id === activeAccount) : null;
   const contextName = activeAccount === 'personal' ? 'Personal' : (activeOrg?.name || 'Organization');
 
+  // Permission checks
+  const canCreate = canCreatePoll(user, activeAccount, activeAccount !== 'personal' ? activeAccount : null);
+  // For analytics tab visibility: personal always true, org requires role check
+  let canViewAnalyticsTab = false;
+  if (activeAccount === 'personal') {
+    canViewAnalyticsTab = true;
+  } else if (activeAccount !== 'personal') {
+    const role = user?.memberships?.[activeAccount]?.role;
+    canViewAnalyticsTab = role && (role === 'owner' || role === 'admin' || role === 'poll_manager' || role === 'analyst');
+  }
+
   // Load polls based on active account
   useEffect(() => {
     if (!user) return;
@@ -82,7 +93,6 @@ export default function DashboardPage() {
       try {
         let pollsQuery;
         if (activeAccount === 'personal') {
-          // Personal polls: created by the user and context type is 'personal' (or no context for older polls)
           pollsQuery = query(
             collection(db, 'polls'),
             where('creator.id', '==', user.uid),
@@ -90,7 +100,6 @@ export default function DashboardPage() {
             orderBy('createdAt', 'desc')
           );
         } else {
-          // Organization polls: context type is 'organization' and matches the orgId
           pollsQuery = query(
             collection(db, 'polls'),
             where('context.type', '==', 'organization'),
@@ -130,9 +139,9 @@ export default function DashboardPage() {
     getUserVotes(user.uid).then(setVotes).catch(() => setVotes([]));
   }, [user]);
 
-  // Load analytics for the active account's polls
+  // Load analytics for the active account's polls – only if user can view analytics for this context
   useEffect(() => {
-    if (!user || tab !== 'analytics') return;
+    if (!user || tab !== 'analytics' || !canViewAnalyticsTab) return;
     const loadAnalytics = async () => {
       try {
         let pollsList = [];
@@ -168,7 +177,7 @@ export default function DashboardPage() {
       }
     };
     loadAnalytics();
-  }, [user, tab, activeAccount]);
+  }, [user, tab, activeAccount, canViewAnalyticsTab]);
 
   async function loadTrendData(pollsList, analyticsMap) {
     const dailyVotes = {};
@@ -274,11 +283,14 @@ export default function DashboardPage() {
     return true;
   });
 
+  // Build tabs array – only include analytics if user has permission
   const tabs = [
     { key: 'polls', label: `${contextName} Polls (${myPolls.length})`, icon: '🗳' },
     { key: 'votes', label: `My Votes (${votes.length})`, icon: '✅' },
-    { key: 'analytics', label: 'Analytics', icon: '📊' },
   ];
+  if (canViewAnalyticsTab) {
+    tabs.push({ key: 'analytics', label: 'Analytics', icon: '📊' });
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -385,9 +397,11 @@ export default function DashboardPage() {
                   <p className="text-xs text-primary mt-1">Currently viewing <strong>{activeOrg.name}</strong> (organization)</p>
                 )}
               </div>
-              <Link to="/create" className="bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-4 py-2 text-sm font-bold shadow hover:shadow-md transition flex items-center gap-1">
-                + Create Poll
-              </Link>
+              {canCreate && (
+                <Link to="/create" className="bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-4 py-2 text-sm font-bold shadow hover:shadow-md transition flex items-center gap-1">
+                  + Create Poll
+                </Link>
+              )}
             </div>
 
             {/* Stats cards */}
@@ -418,7 +432,9 @@ export default function DashboardPage() {
                   <div className="text-center py-16 bg-white rounded-xl border border-gray-100">
                     <p className="text-5xl mb-3">🗳</p>
                     <p className="font-semibold text-gray-600 mb-4">No polls in this context</p>
-                    <Link to="/create" className="bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-5 py-2 text-sm font-bold shadow">Create your first poll</Link>
+                    {canCreate && (
+                      <Link to="/create" className="bg-gradient-to-r from-primary to-secondary text-white rounded-xl px-5 py-2 text-sm font-bold shadow">Create your first poll</Link>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -486,8 +502,8 @@ export default function DashboardPage() {
               </>
             )}
 
-            {/* Analytics Tab – uses newest data from active account */}
-            {tab === 'analytics' && (
+            {/* Analytics Tab – only shown if user has permission */}
+            {tab === 'analytics' && canViewAnalyticsTab && (
               <div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                   <StatCard icon="🗳" value={analyticsOverview.totalPolls} label="Total Polls" />
@@ -511,7 +527,12 @@ export default function DashboardPage() {
                 <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto mb-6">
                   <table className="min-w-full text-sm">
                     <thead className="bg-gray-50">
-                      <tr><th className="px-4 py-3 text-left">Poll</th><th className="px-4 py-3 text-center">Vote Rate</th><th className="px-4 py-3 text-center">Votes</th><th className="px-4 py-3 text-center">Action</th></tr>
+                      <tr>
+                        <th className="px-4 py-3 text-left">Poll</th>
+                        <th className="px-4 py-3 text-center">Vote Rate</th>
+                        <th className="px-4 py-3 text-center">Votes</th>
+                        <th className="px-4 py-3 text-center">Action</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {filteredAnalyticsPolls.map(poll => {

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
 import { db, auth } from '../lib/firebase';
 import { doc, getDoc, updateDoc, collection, query, where, orderBy, getDocs, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { uploadToFirebaseStorage } from '../lib/upload';
@@ -12,6 +13,7 @@ import { formatDate, toDate } from '../lib/utils';
 import { VerifiedBadge, PremiumBadge, Button, Card } from '../components/UI';
 import { BADGES } from '../lib/constants';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { canEditOrgProfile } from '../lib/permissions'; // helper for organization profile editing
 
 const POLL_TYPE_ICONS = {
   quick: '⚡',
@@ -40,12 +42,19 @@ const Toggle = ({ value, onChange }) => (
 export default function ProfilePage() {
   const { id } = useParams();
   const { user, refreshUser } = useAuth();
+  const { activeAccount, organizations } = useAccount(); // get active account (personal or orgId)
   const navigate = useNavigate();
 
-  const userId = id || user?.uid;
-  const isOwnProfile = user && user.uid === userId;
+  // Determine which profile to show:
+  // - If URL contains a userId, show that user's personal profile (friend's profile)
+  // - Else if activeAccount is an organization, show the organization's profile
+  // - Else show the logged-in user's personal profile
+  const isFriendProfile = !!id && (id !== user?.uid);
+  const showOrganizationProfile = !isFriendProfile && activeAccount !== 'personal';
+  const targetUserId = isFriendProfile ? id : (user?.uid || null);
+  const targetOrgId = showOrganizationProfile ? activeAccount : null;
 
-  const [profile, setProfile] = useState(null);
+  const [profile, setProfile] = useState(null); // user data (for personal) or org data
   const [polls, setPolls] = useState([]);
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
@@ -57,16 +66,7 @@ export default function ProfilePage() {
   const [followingCreator, setFollowingCreator] = useState(false);
   const [followingLoading, setFollowingLoading] = useState(false);
   const [toast, setToast] = useState(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    username: '',
-    email: '',
-    phone: '',
-    age: '',
-    gender: '',
-    city: '',
-    country: '',
-  });
+  const [formData, setFormData] = useState({});
   const [usernameOk, setUsernameOk] = useState(null);
 
   const showToast = (type, msg) => {
@@ -78,18 +78,63 @@ export default function ProfilePage() {
 
   // Load profile data
   useEffect(() => {
-    if (!userId) return;
-    const load = async () => {
+    if (showOrganizationProfile && targetOrgId) {
+      const loadOrg = async () => {
+        setLoading(true);
+        try {
+          const orgSnap = await getDoc(doc(db, 'organizations', targetOrgId));
+          if (!orgSnap.exists()) {
+            setProfile(null);
+            setLoading(false);
+            return;
+          }
+          const orgData = orgSnap.data();
+          setProfile({ 
+            id: targetOrgId,
+            name: orgData.name,
+            description: orgData.description || '',
+            logo: orgData.logo || null,
+            type: 'organization',
+            createdAt: orgData.createdAt?.toDate?.() || new Date(),
+            ...orgData,
+          });
+          // For organizations, we don't have polls directly (polls are under context.orgId)
+          // We could fetch polls belonging to this organization
+          const pollsSnap = await getDocs(query(
+            collection(db, 'polls'),
+            where('context.type', '==', 'organization'),
+            where('context.orgId', '==', targetOrgId),
+            orderBy('createdAt', 'desc')
+          ));
+          setPolls(pollsSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) })));
+          setFollowers([]); // organizations don't have followers in the same way
+          setFollowing([]);
+          setLoading(false);
+        } catch (err) {
+          console.error(err);
+          setLoading(false);
+        }
+      };
+      loadOrg();
+      return;
+    }
+
+    if (!targetUserId) {
+      setLoading(false);
+      return;
+    }
+
+    const loadUser = async () => {
       setLoading(true);
       try {
-        const snap = await getDoc(doc(db, 'users', userId));
+        const snap = await getDoc(doc(db, 'users', targetUserId));
         if (!snap.exists()) {
           setProfile(null);
           setLoading(false);
           return;
         }
         const d = snap.data();
-        setProfile({ uid: userId, ...d });
+        setProfile({ uid: targetUserId, ...d });
         setFormData({
           name: d.name || '',
           username: d.username || '',
@@ -101,18 +146,17 @@ export default function ProfilePage() {
           country: d.location?.country || '',
         });
 
-        // Gracefully handle permission errors for followers/following
         const [pollsSnap, fols, fing] = await Promise.all([
-          getDocs(query(collection(db, 'polls'), where('creator.id', '==', userId), orderBy('createdAt', 'desc'))),
-          getFollowers(userId).catch(() => []),
-          getFollowing(userId).catch(() => []),
+          getDocs(query(collection(db, 'polls'), where('creator.id', '==', targetUserId), orderBy('createdAt', 'desc'))),
+          getFollowers(targetUserId).catch(() => []),
+          getFollowing(targetUserId).catch(() => []),
         ]);
         setPolls(pollsSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) })));
         setFollowers(fols);
         setFollowing(fing);
 
-        if (user && user.uid !== userId) {
-          setFollowingCreator(await isFollowing(userId, user.uid));
+        if (user && user.uid !== targetUserId) {
+          setFollowingCreator(await isFollowing(targetUserId, user.uid));
         }
       } catch (err) {
         console.error(err);
@@ -120,14 +164,14 @@ export default function ProfilePage() {
         setLoading(false);
       }
     };
-    load();
-  }, [userId, user]);
+    loadUser();
+  }, [targetUserId, targetOrgId, showOrganizationProfile, user]);
 
-  // Username availability check
+  // Username availability check (only for personal profile editing)
   useEffect(() => {
-    if (!editing) return;
+    if (!editing || showOrganizationProfile) return;
     const timer = setTimeout(async () => {
-      const newUsername = formData.username.trim();
+      const newUsername = formData.username?.trim();
       if (newUsername.length < 3 || newUsername === profile?.username) {
         setUsernameOk(null);
         return;
@@ -136,15 +180,16 @@ export default function ProfilePage() {
       setUsernameOk(snap.empty);
     }, 500);
     return () => clearTimeout(timer);
-  }, [formData.username, editing, profile?.username]);
+  }, [formData.username, editing, profile?.username, showOrganizationProfile]);
 
   const handleAvatar = async (e) => {
+    if (showOrganizationProfile) return; // org avatar not supported yet
     const file = e.target.files[0];
     if (!file || !isOwnProfile) return;
     setUploading(true);
     try {
-      const url = await uploadToFirebaseStorage(file, `profiles/${userId}`);
-      await updateDoc(doc(db, 'users', userId), { profileImage: url, updatedAt: serverTimestamp() });
+      const url = await uploadToFirebaseStorage(file, `profiles/${targetUserId}`);
+      await updateDoc(doc(db, 'users', targetUserId), { profileImage: url, updatedAt: serverTimestamp() });
       setProfile(prev => ({ ...prev, profileImage: url }));
       await refreshUser();
       showToast('success', 'Photo updated!');
@@ -156,6 +201,35 @@ export default function ProfilePage() {
   };
 
   const handleSave = async () => {
+    if (showOrganizationProfile) {
+      // Organization profile editing (only if user has permission)
+      const canEdit = canEditOrgProfile(user, targetOrgId);
+      if (!canEdit) {
+        showToast('error', 'You do not have permission to edit this organization profile.');
+        return;
+      }
+      setSaving(true);
+      try {
+        const orgRef = doc(db, 'organizations', targetOrgId);
+        const updates = {
+          name: formData.name?.trim(),
+          description: formData.description?.trim() || null,
+          logo: formData.logo || null,
+          updatedAt: serverTimestamp(),
+        };
+        await updateDoc(orgRef, updates);
+        setProfile(prev => ({ ...prev, ...updates }));
+        setEditing(false);
+        showToast('success', 'Organization profile updated!');
+      } catch (err) {
+        showToast('error', 'Update failed.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Personal profile editing
     if (formData.username !== profile?.username && !usernameOk) {
       showToast('error', 'Username not available.');
       return;
@@ -181,7 +255,7 @@ export default function ProfilePage() {
         updates['location.country'] = formData.country.trim() || null;
         updates['location.city'] = formData.city.trim() || null;
       }
-      await updateDoc(doc(db, 'users', userId), updates);
+      await updateDoc(doc(db, 'users', targetUserId), updates);
       setProfile(prev => ({ ...prev, ...updates }));
       await refreshUser();
       setEditing(false);
@@ -198,15 +272,15 @@ export default function ProfilePage() {
       navigate('/login');
       return;
     }
-    if (followingLoading) return;
+    if (followingLoading || showOrganizationProfile) return;
     setFollowingLoading(true);
     try {
       if (followingCreator) {
-        await unfollowUser(userId, user.uid);
+        await unfollowUser(targetUserId, user.uid);
         setFollowingCreator(false);
         setFollowers(prev => prev.filter(i => i !== user.uid));
       } else {
-        await followUser(userId, user.uid);
+        await followUser(targetUserId, user.uid);
         setFollowingCreator(true);
         setFollowers(prev => [...prev, user.uid]);
       }
@@ -252,7 +326,7 @@ export default function ProfilePage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-5xl mb-3">👤</p>
-          <p className="text-gray-700 font-semibold">User not found</p>
+          <p className="text-gray-700 font-semibold">Profile not found</p>
           <Link to="/explore" className="text-[#6C5CE7] text-sm mt-2 inline-block">
             Browse polls →
           </Link>
@@ -261,6 +335,8 @@ export default function ProfilePage() {
     );
   }
 
+  const isOwnProfile = user && !isFriendProfile && (activeAccount === 'personal' ? (user.uid === profile.uid) : true);
+  const canEdit = isOwnProfile && (showOrganizationProfile ? (user?.memberships?.[targetOrgId]?.role === 'owner' || user?.memberships?.[targetOrgId]?.role === 'admin') : true);
   const monthlyLimit = getMonthlyPollLimit(profile.tier || 'free');
   const usagePct = monthlyLimit === Infinity ? 10 : Math.min(100, ((profile.pollsThisMonth || 0) / monthlyLimit) * 100);
   const isIndividual = profile.type === 'individual';
@@ -268,7 +344,6 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
-      {/* Toast notification */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -294,16 +369,18 @@ export default function ProfilePage() {
         {/* Hero banner */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8 mb-6">
           <div className="flex flex-col md:flex-row gap-6 items-start md:items-center">
-            {/* Avatar */}
+            {/* Avatar / Logo */}
             <div className="relative flex-shrink-0 mx-auto md:mx-0">
               <div className="w-24 h-24 rounded-full bg-gradient-to-r from-[#6C5CE7] to-[#a855f7] flex items-center justify-center text-white text-3xl font-bold border-3 border-white shadow-md overflow-hidden">
-                {profile.profileImage ? (
+                {showOrganizationProfile && profile.logo ? (
+                  <img src={profile.logo} alt={profile.name} className="w-full h-full object-cover" />
+                ) : profile.profileImage ? (
                   <img src={profile.profileImage} alt={profile.name} className="w-full h-full object-cover" />
                 ) : (
                   (profile.name?.[0] || 'U').toUpperCase()
                 )}
               </div>
-              {isOwnProfile && (
+              {isOwnProfile && canEdit && !showOrganizationProfile && (
                 <label className="absolute bottom-0 right-0 w-8 h-8 bg-[#6C5CE7] rounded-full flex items-center justify-center cursor-pointer shadow-md border-2 border-white text-white text-xs">
                   📷
                   <input type="file" accept="image/*" onChange={handleAvatar} className="hidden" disabled={uploading} />
@@ -316,131 +393,167 @@ export default function ProfilePage() {
               <div className="flex-1 text-center md:text-left">
                 <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mb-1">
                   <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{profile.name}</h1>
-                  {profile.verified && <VerifiedBadge size={18} />}
-                  {(profile.tier === 'premium' || profile.tier === 'organization') && <PremiumBadge size={18} />}
+                  {!showOrganizationProfile && profile.verified && <VerifiedBadge size={18} />}
+                  {!showOrganizationProfile && (profile.tier === 'premium' || profile.tier === 'organization') && <PremiumBadge size={18} />}
                 </div>
-                <p className="text-gray-500 text-sm">@{profile.username} · {profile.type === 'individual' ? 'Individual' : 'Organization'}</p>
-                {(profile.location?.city || profile.location?.country) && (
+                {!showOrganizationProfile && (
+                  <p className="text-gray-500 text-sm">@{profile.username} · {profile.type === 'individual' ? 'Individual' : 'Organization'}</p>
+                )}
+                {(profile.location?.city || profile.location?.country) && !showOrganizationProfile && (
                   <p className="text-gray-400 text-xs mt-1">📍 {[profile.location?.city, profile.location?.country].filter(Boolean).join(', ')}</p>
                 )}
-                <div className="flex flex-wrap justify-center md:justify-start gap-6 mt-4">
-                  <div>
-                    <p className="text-xl font-bold text-gray-900">{polls.length}</p>
-                    <p className="text-xs text-gray-500">Polls</p>
+                {showOrganizationProfile && profile.description && (
+                  <p className="text-gray-600 text-sm mt-1">{profile.description}</p>
+                )}
+                {!showOrganizationProfile && (
+                  <div className="flex flex-wrap justify-center md:justify-start gap-6 mt-4">
+                    <div>
+                      <p className="text-xl font-bold text-gray-900">{polls.length}</p>
+                      <p className="text-xs text-gray-500">Polls</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold text-gray-900">{followers.length}</p>
+                      <p className="text-xs text-gray-500">Followers</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold text-gray-900">{following.length}</p>
+                      <p className="text-xs text-gray-500">Following</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xl font-bold text-gray-900">{followers.length}</p>
-                    <p className="text-xs text-gray-500">Followers</p>
-                  </div>
-                  <div>
-                    <p className="text-xl font-bold text-gray-900">{following.length}</p>
-                    <p className="text-xs text-gray-500">Following</p>
-                  </div>
-                </div>
+                )}
               </div>
             ) : (
               <div className="flex-1 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Full name</label>
-                    <input
-                      className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                      value={formData.name}
-                      onChange={e => updateForm('name', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Username</label>
-                    <input
-                      className={`w-full px-3 py-2 bg-[#f7f7fb] border rounded-lg focus:ring-1 focus:outline-none transition ${
-                        usernameOk === false
-                          ? 'border-red-400 focus:border-red-400'
-                          : usernameOk === true
-                          ? 'border-green-400 focus:border-green-400'
-                          : 'border-[#e8e8ee] focus:border-[#6C5CE7]'
-                      }`}
-                      value={formData.username}
-                      onChange={e => updateForm('username', e.target.value)}
-                    />
-                    {usernameOk === true && <p className="text-green-600 text-xs mt-1">✓ Available</p>}
-                    {usernameOk === false && <p className="text-red-500 text-xs mt-1">✗ Taken</p>}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
-                    <input
-                      type="email"
-                      className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                      value={formData.email}
-                      onChange={e => updateForm('email', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone</label>
-                    <input
-                      type="tel"
-                      placeholder="+1234567890"
-                      className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                      value={formData.phone}
-                      onChange={e => updateForm('phone', e.target.value)}
-                    />
-                  </div>
-                </div>
-                {isIndividual && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Age</label>
-                      <input
-                        type="number"
-                        className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                        value={formData.age}
-                        onChange={e => updateForm('age', e.target.value)}
-                      />
+                {!showOrganizationProfile ? (
+                  // Personal profile edit form
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Full name</label>
+                        <input
+                          className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                          value={formData.name}
+                          onChange={e => updateForm('name', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Username</label>
+                        <input
+                          className={`w-full px-3 py-2 bg-[#f7f7fb] border rounded-lg focus:ring-1 focus:outline-none transition ${
+                            usernameOk === false
+                              ? 'border-red-400 focus:border-red-400'
+                              : usernameOk === true
+                              ? 'border-green-400 focus:border-green-400'
+                              : 'border-[#e8e8ee] focus:border-[#6C5CE7]'
+                          }`}
+                          value={formData.username}
+                          onChange={e => updateForm('username', e.target.value)}
+                        />
+                        {usernameOk === true && <p className="text-green-600 text-xs mt-1">✓ Available</p>}
+                        {usernameOk === false && <p className="text-red-500 text-xs mt-1">✗ Taken</p>}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Gender</label>
-                      <select
-                        className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition cursor-pointer"
-                        value={formData.gender}
-                        onChange={e => updateForm('gender', e.target.value)}
-                      >
-                        <option value="">Select</option>
-                        <option>Male</option>
-                        <option>Female</option>
-                        <option>Other</option>
-                        <option>Prefer not to say</option>
-                      </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
+                        <input
+                          type="email"
+                          className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                          value={formData.email}
+                          onChange={e => updateForm('email', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Phone</label>
+                        <input
+                          type="tel"
+                          placeholder="+1234567890"
+                          className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                          value={formData.phone}
+                          onChange={e => updateForm('phone', e.target.value)}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">City</label>
-                      <input
-                        className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                        value={formData.city}
-                        onChange={e => updateForm('city', e.target.value)}
-                      />
+                    {isIndividual && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Age</label>
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                            value={formData.age}
+                            onChange={e => updateForm('age', e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Gender</label>
+                          <select
+                            className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition cursor-pointer"
+                            value={formData.gender}
+                            onChange={e => updateForm('gender', e.target.value)}
+                          >
+                            <option value="">Select</option>
+                            <option>Male</option>
+                            <option>Female</option>
+                            <option>Other</option>
+                            <option>Prefer not to say</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">City</label>
+                          <input
+                            className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                            value={formData.city}
+                            onChange={e => updateForm('city', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {!isIndividual && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Country</label>
+                          <input
+                            className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                            value={formData.country}
+                            onChange={e => updateForm('country', e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 uppercase mb-1">City</label>
+                          <input
+                            className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                            value={formData.city}
+                            onChange={e => updateForm('city', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  // Organization profile edit form
+                  <>
+                    <div className="grid grid-cols-1 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Organization name</label>
+                        <input
+                          className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                          value={formData.name || profile.name}
+                          onChange={e => updateForm('name', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Description</label>
+                        <textarea
+                          className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
+                          rows={3}
+                          value={formData.description || profile.description || ''}
+                          onChange={e => updateForm('description', e.target.value)}
+                        />
+                      </div>
+                      {/* Logo upload could be added similarly to avatar */}
                     </div>
-                  </div>
-                )}
-                {!isIndividual && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Country</label>
-                      <input
-                        className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                        value={formData.country}
-                        onChange={e => updateForm('country', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">City</label>
-                      <input
-                        className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                        value={formData.city}
-                        onChange={e => updateForm('city', e.target.value)}
-                      />
-                    </div>
-                  </div>
+                  </>
                 )}
                 <div className="flex gap-3 pt-2">
                   <Button onClick={handleSave} loading={saving} size="small">
@@ -458,7 +571,7 @@ export default function ProfilePage() {
               <div className="flex flex-col gap-2 w-full md:w-auto">
                 {isOwnProfile ? (
                   <>
-                    <Button onClick={() => setEditing(true)} variant="secondary" size="small" className="w-full">
+                    <Button onClick={() => setEditing(true)} variant="secondary" size="small" className="w-full" disabled={!canEdit}>
                       Edit Profile
                     </Button>
                     <Button href="/upgrade" variant="premium" size="small" className="w-full">
@@ -469,24 +582,26 @@ export default function ProfilePage() {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    onClick={handleFollow}
-                    variant={followingCreator ? 'secondary' : 'primary'}
-                    size="small"
-                    className="w-full"
-                    loading={followingLoading}
-                    disabled={followingLoading}
-                  >
-                    {followingCreator ? '✓ Following' : '+ Follow'}
-                  </Button>
+                  !showOrganizationProfile && (
+                    <Button
+                      onClick={handleFollow}
+                      variant={followingCreator ? 'secondary' : 'primary'}
+                      size="small"
+                      className="w-full"
+                      loading={followingLoading}
+                      disabled={followingLoading}
+                    >
+                      {followingCreator ? '✓ Following' : '+ Follow'}
+                    </Button>
+                  )
                 )}
               </div>
             )}
           </div>
         </div>
 
-        {/* Usage bar (own profile) */}
-        {isOwnProfile && (
+        {/* Usage bar (only for own personal profile) */}
+        {isOwnProfile && !showOrganizationProfile && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex-1">
@@ -510,8 +625,8 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Badges section */}
-        {earnedBadges.length > 0 && (
+        {/* Badges section (personal only) */}
+        {!showOrganizationProfile && earnedBadges.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
             <h3 className="text-sm font-bold text-gray-900 mb-3">🏅 Achievements</h3>
             <div className="flex flex-wrap gap-2">
@@ -525,8 +640,8 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Organization details */}
-        {profile.type === 'organization' && profile.organization && (
+        {/* Organization details (personal profile for org users) */}
+        {!showOrganizationProfile && profile.type === 'organization' && profile.organization && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
             <h3 className="text-sm font-bold text-gray-900 mb-2">🏢 Organization</h3>
             <p className="font-semibold">{profile.organization.name}</p>
@@ -534,9 +649,9 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Tabs - team tab navigates to /team instead of setting tab state */}
+        {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-200 mb-6">
-          {['polls', 'achievements', 'about', profile.type === 'organization' ? 'team' : null].filter(Boolean).map(t => (
+          {['polls'].concat(!showOrganizationProfile ? ['achievements', 'about'] : []).concat(profile.type === 'organization' && !showOrganizationProfile ? ['team'] : []).map(t => (
             <button
               key={t}
               onClick={() => {
@@ -562,8 +677,8 @@ export default function ProfilePage() {
           <>
             {polls.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 text-center py-12">
-                <p className="text-gray-500">No polls yet</p>
-                {isOwnProfile && (
+                <p className="text-gray-500">No polls found</p>
+                {isOwnProfile && !showOrganizationProfile && (
                   <Button href="/create" className="mt-4">
                     Create first poll
                   </Button>
@@ -571,53 +686,56 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {polls.map(poll => (
-                  <div key={poll.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="bg-[#f7f7fb] p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-2xl">{POLL_TYPE_ICONS[poll.type] || '🗳'}</span>
-                        <span className="text-xs text-gray-500">{poll.totalVotes?.toLocaleString() || 0} votes</span>
+                {polls.map(poll => {
+                  const canDelete = isOwnProfile && !showOrganizationProfile; // For organization polls, edit/delete not handled here yet
+                  return (
+                    <div key={poll.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                      <div className="bg-[#f7f7fb] p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="text-2xl">{POLL_TYPE_ICONS[poll.type] || '🗳'}</span>
+                          <span className="text-xs text-gray-500">{poll.totalVotes?.toLocaleString() || 0} votes</span>
+                        </div>
+                        <p className="font-semibold text-gray-900 line-clamp-2">{poll.question}</p>
                       </div>
-                      <p className="font-semibold text-gray-900 line-clamp-2">{poll.question}</p>
-                    </div>
-                    <div className="p-3 flex justify-between items-center border-t border-gray-100">
-                      <span className="text-xs text-gray-400">{formatDate(poll.createdAt)}</span>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleSharePoll(poll.id, poll.question)}
-                          className="text-gray-500 hover:text-[#6C5CE7] transition"
-                          title="Share"
-                        >
-                          🔗
-                        </button>
-                        {isOwnProfile && (
-                          <>
-                            <Link to={`/create?edit=${poll.id}`} className="text-gray-500 hover:text-[#6C5CE7]" title="Edit">
-                              ✏️
-                            </Link>
-                            <button
-                              onClick={() => handleDeletePoll(poll.id)}
-                              className="text-gray-500 hover:text-red-500 transition"
-                              title="Delete"
-                            >
-                              🗑️
-                            </button>
-                          </>
-                        )}
-                        <Link to={`/poll/${poll.id}`} className="text-xs font-semibold text-[#6C5CE7] bg-[#6C5CE7]/10 px-2 py-1 rounded">
-                          View →
-                        </Link>
+                      <div className="p-3 flex justify-between items-center border-t border-gray-100">
+                        <span className="text-xs text-gray-400">{formatDate(poll.createdAt)}</span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleSharePoll(poll.id, poll.question)}
+                            className="text-gray-500 hover:text-[#6C5CE7] transition"
+                            title="Share"
+                          >
+                            🔗
+                          </button>
+                          {isOwnProfile && !showOrganizationProfile && (
+                            <>
+                              <Link to={`/create?edit=${poll.id}`} className="text-gray-500 hover:text-[#6C5CE7]" title="Edit">
+                                ✏️
+                              </Link>
+                              <button
+                                onClick={() => handleDeletePoll(poll.id)}
+                                className="text-gray-500 hover:text-red-500 transition"
+                                title="Delete"
+                              >
+                                🗑️
+                              </button>
+                            </>
+                          )}
+                          <Link to={`/poll/${poll.id}`} className="text-xs font-semibold text-[#6C5CE7] bg-[#6C5CE7]/10 px-2 py-1 rounded">
+                            View →
+                          </Link>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
         )}
 
-        {/* Achievements tab */}
-        {tab === 'achievements' && (
+        {/* Achievements tab (personal only) */}
+        {tab === 'achievements' && !showOrganizationProfile && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             {earnedBadges.length === 0 ? (
               <p className="text-center text-gray-500 py-8">No badges yet. Keep creating polls and engaging!</p>
@@ -635,8 +753,8 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* About tab */}
-        {tab === 'about' && (
+        {/* About tab (personal only) */}
+        {tab === 'about' && !showOrganizationProfile && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">About {profile.name}</h3>
             <div className="space-y-3">
