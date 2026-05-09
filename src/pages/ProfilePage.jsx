@@ -13,7 +13,7 @@ import { formatDate, toDate } from '../lib/utils';
 import { VerifiedBadge, PremiumBadge, Button, Card } from '../components/UI';
 import { BADGES } from '../lib/constants';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
-import { canEditOrgProfile } from '../lib/permissions'; // helper for organization profile editing
+import { canEditOrgProfile } from '../lib/permissions';
 
 const POLL_TYPE_ICONS = {
   quick: '⚡',
@@ -42,19 +42,19 @@ const Toggle = ({ value, onChange }) => (
 export default function ProfilePage() {
   const { id } = useParams();
   const { user, refreshUser } = useAuth();
-  const { activeAccount, organizations } = useAccount(); // get active account (personal or orgId)
+  const { activeAccount, organizations } = useAccount();
   const navigate = useNavigate();
 
   // Determine which profile to show:
-  // - If URL contains a userId, show that user's personal profile (friend's profile)
-  // - Else if activeAccount is an organization, show the organization's profile
-  // - Else show the logged-in user's personal profile
+  // - If URL has an ID and it's not the logged-in user, show that user's personal profile (friend)
+  // - Else if activeAccount is an organization, show organization profile
+  // - Else show logged-in user's personal profile
   const isFriendProfile = !!id && (id !== user?.uid);
   const showOrganizationProfile = !isFriendProfile && activeAccount !== 'personal';
-  const targetUserId = isFriendProfile ? id : (user?.uid || null);
+  const targetUserId = isFriendProfile ? id : (showOrganizationProfile ? null : user?.uid);
   const targetOrgId = showOrganizationProfile ? activeAccount : null;
 
-  const [profile, setProfile] = useState(null); // user data (for personal) or org data
+  const [profile, setProfile] = useState(null);
   const [polls, setPolls] = useState([]);
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
@@ -89,17 +89,18 @@ export default function ProfilePage() {
             return;
           }
           const orgData = orgSnap.data();
-          setProfile({ 
+          setProfile({
             id: targetOrgId,
             name: orgData.name,
             description: orgData.description || '',
             logo: orgData.logo || null,
             type: 'organization',
             createdAt: orgData.createdAt?.toDate?.() || new Date(),
+            tier: orgData.tier || 'organization',
+            location: { country: orgData.country || null, city: orgData.city || null },
             ...orgData,
           });
-          // For organizations, we don't have polls directly (polls are under context.orgId)
-          // We could fetch polls belonging to this organization
+          // Fetch organization's polls (where context.orgId matches)
           const pollsSnap = await getDocs(query(
             collection(db, 'polls'),
             where('context.type', '==', 'organization'),
@@ -107,7 +108,7 @@ export default function ProfilePage() {
             orderBy('createdAt', 'desc')
           ));
           setPolls(pollsSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) })));
-          setFollowers([]); // organizations don't have followers in the same way
+          setFollowers([]);
           setFollowing([]);
           setLoading(false);
         } catch (err) {
@@ -183,7 +184,7 @@ export default function ProfilePage() {
   }, [formData.username, editing, profile?.username, showOrganizationProfile]);
 
   const handleAvatar = async (e) => {
-    if (showOrganizationProfile) return; // org avatar not supported yet
+    if (showOrganizationProfile) return;
     const file = e.target.files[0];
     if (!file || !isOwnProfile) return;
     setUploading(true);
@@ -202,7 +203,6 @@ export default function ProfilePage() {
 
   const handleSave = async () => {
     if (showOrganizationProfile) {
-      // Organization profile editing (only if user has permission)
       const canEdit = canEditOrgProfile(user, targetOrgId);
       if (!canEdit) {
         showToast('error', 'You do not have permission to edit this organization profile.');
@@ -335,7 +335,7 @@ export default function ProfilePage() {
     );
   }
 
-  const isOwnProfile = user && !isFriendProfile && (activeAccount === 'personal' ? (user.uid === profile.uid) : true);
+  const isOwnProfile = user && !isFriendProfile && (showOrganizationProfile ? true : user.uid === profile.uid);
   const canEdit = isOwnProfile && (showOrganizationProfile ? (user?.memberships?.[targetOrgId]?.role === 'owner' || user?.memberships?.[targetOrgId]?.role === 'admin') : true);
   const monthlyLimit = getMonthlyPollLimit(profile.tier || 'free');
   const usagePct = monthlyLimit === Infinity ? 10 : Math.min(100, ((profile.pollsThisMonth || 0) / monthlyLimit) * 100);
@@ -425,14 +425,14 @@ export default function ProfilePage() {
             ) : (
               <div className="flex-1 space-y-4">
                 {!showOrganizationProfile ? (
-                  // Personal profile edit form
+                  // Personal profile edit form (same as before)
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Full name</label>
                         <input
                           className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                          value={formData.name}
+                          value={formData.name || ''}
                           onChange={e => updateForm('name', e.target.value)}
                         />
                       </div>
@@ -446,7 +446,7 @@ export default function ProfilePage() {
                               ? 'border-green-400 focus:border-green-400'
                               : 'border-[#e8e8ee] focus:border-[#6C5CE7]'
                           }`}
-                          value={formData.username}
+                          value={formData.username || ''}
                           onChange={e => updateForm('username', e.target.value)}
                         />
                         {usernameOk === true && <p className="text-green-600 text-xs mt-1">✓ Available</p>}
@@ -459,7 +459,7 @@ export default function ProfilePage() {
                         <input
                           type="email"
                           className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                          value={formData.email}
+                          value={formData.email || ''}
                           onChange={e => updateForm('email', e.target.value)}
                         />
                       </div>
@@ -469,7 +469,7 @@ export default function ProfilePage() {
                           type="tel"
                           placeholder="+1234567890"
                           className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                          value={formData.phone}
+                          value={formData.phone || ''}
                           onChange={e => updateForm('phone', e.target.value)}
                         />
                       </div>
@@ -481,7 +481,7 @@ export default function ProfilePage() {
                           <input
                             type="number"
                             className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                            value={formData.age}
+                            value={formData.age || ''}
                             onChange={e => updateForm('age', e.target.value)}
                           />
                         </div>
@@ -489,7 +489,7 @@ export default function ProfilePage() {
                           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Gender</label>
                           <select
                             className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition cursor-pointer"
-                            value={formData.gender}
+                            value={formData.gender || ''}
                             onChange={e => updateForm('gender', e.target.value)}
                           >
                             <option value="">Select</option>
@@ -503,7 +503,7 @@ export default function ProfilePage() {
                           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">City</label>
                           <input
                             className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                            value={formData.city}
+                            value={formData.city || ''}
                             onChange={e => updateForm('city', e.target.value)}
                           />
                         </div>
@@ -515,7 +515,7 @@ export default function ProfilePage() {
                           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Country</label>
                           <input
                             className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                            value={formData.country}
+                            value={formData.country || ''}
                             onChange={e => updateForm('country', e.target.value)}
                           />
                         </div>
@@ -523,7 +523,7 @@ export default function ProfilePage() {
                           <label className="block text-xs font-bold text-gray-500 uppercase mb-1">City</label>
                           <input
                             className="w-full px-3 py-2 bg-[#f7f7fb] border border-[#e8e8ee] rounded-lg focus:border-[#6C5CE7] focus:ring-1 focus:ring-[#6C5CE7] outline-none transition"
-                            value={formData.city}
+                            value={formData.city || ''}
                             onChange={e => updateForm('city', e.target.value)}
                           />
                         </div>
@@ -531,7 +531,7 @@ export default function ProfilePage() {
                     )}
                   </>
                 ) : (
-                  // Organization profile edit form
+                  // Organization profile edit form (simplified)
                   <>
                     <div className="grid grid-cols-1 gap-3">
                       <div>
@@ -551,7 +551,6 @@ export default function ProfilePage() {
                           onChange={e => updateForm('description', e.target.value)}
                         />
                       </div>
-                      {/* Logo upload could be added similarly to avatar */}
                     </div>
                   </>
                 )}
@@ -640,15 +639,6 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Organization details (personal profile for org users) */}
-        {!showOrganizationProfile && profile.type === 'organization' && profile.organization && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
-            <h3 className="text-sm font-bold text-gray-900 mb-2">🏢 Organization</h3>
-            <p className="font-semibold">{profile.organization.name}</p>
-            {profile.organization.tagline && <p className="text-xs text-gray-500 mt-1">{profile.organization.tagline}</p>}
-          </div>
-        )}
-
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-200 mb-6">
           {['polls'].concat(!showOrganizationProfile ? ['achievements', 'about'] : []).concat(profile.type === 'organization' && !showOrganizationProfile ? ['team'] : []).map(t => (
@@ -687,7 +677,7 @@ export default function ProfilePage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {polls.map(poll => {
-                  const canDelete = isOwnProfile && !showOrganizationProfile; // For organization polls, edit/delete not handled here yet
+                  const canDelete = isOwnProfile && !showOrganizationProfile;
                   return (
                     <div key={poll.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                       <div className="bg-[#f7f7fb] p-4">
@@ -774,8 +764,6 @@ export default function ProfilePage() {
             </div>
           </div>
         )}
-
-        {/* Team tab placeholder removed – navigation handled directly */}
       </div>
     </div>
   );
