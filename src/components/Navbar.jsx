@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart3, Menu, X, User, LogOut, LayoutDashboard, PlusCircle, Search, Bell, Users, Crown } from 'lucide-react';
+import { BarChart3, Menu, X, User, LogOut, LayoutDashboard, PlusCircle, Search, Bell, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccount } from '../contexts/AccountContext';
 import AccountSwitcher from './AccountSwitcher';
@@ -12,21 +12,19 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export default function Navbar() {
   const { user } = useAuth();
-  const { organizations } = useAccount(); // get organization list
+  const { organizations } = useAccount();
   const navigate = useNavigate();
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Scroll effect
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handler);
     return () => window.removeEventListener('scroll', handler);
   }, []);
 
-  // Real‑time unread notifications count
   useEffect(() => {
     if (!user) {
       setUnreadCount(0);
@@ -43,7 +41,6 @@ export default function Navbar() {
     return () => unsubscribe();
   }, [user]);
 
-  // Close mobile menu on route change
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
@@ -63,7 +60,9 @@ export default function Navbar() {
     return exact ? location.pathname === path : location.pathname.startsWith(path);
   };
 
+  // ✅ Define these BEFORE using them in the JSX
   const hasOrganizations = organizations && organizations.length > 0;
+  const showAccountSwitcher = hasOrganizations && user?.type === 'individual';
 
   return (
     <motion.nav
@@ -109,10 +108,8 @@ export default function Navbar() {
         <div className="hidden md:flex items-center gap-3">
           {user ? (
             <>
-              {/* Account Switcher – only if user belongs to any organization */}
-              {hasOrganizations && <AccountSwitcher />}
+              {showAccountSwitcher && <AccountSwitcher />}
 
-              {/* Notification Bell */}
               <Link to="/notifications" className="relative p-2 rounded-lg text-gray-600 hover:text-primary hover:bg-gray-50 transition">
                 <Bell size={18} />
                 {unreadCount > 0 && (
@@ -148,7 +145,6 @@ export default function Navbar() {
                   <Link to={`/profile/${user.uid}`} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                     <User size={14} /> Profile
                   </Link>
-                  {/* Team Management – show if active account is an organization OR user has any org */}
                   {hasOrganizations && (
                     <Link to="/team" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                       <Users size={14} /> Team Management
@@ -196,14 +192,12 @@ export default function Navbar() {
             className="md:hidden border-t border-gray-100 bg-white shadow-lg overflow-hidden"
           >
             <div className="container mx-auto px-4 py-4 flex flex-col gap-2">
-              {/* Account Switcher on mobile (if applicable) */}
-              {hasOrganizations && (
+              {showAccountSwitcher && (
                 <div className="px-3 py-2">
                   <AccountSwitcher />
                 </div>
               )}
 
-              {/* Notification Bell for mobile */}
               {user && (
                 <Link
                   to="/notifications"

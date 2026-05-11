@@ -1,4 +1,4 @@
-// src/components/PollCard.jsx
+// src/components/PollCard.jsx – with option carousel for media-rich polls
 import { Link } from 'react-router-dom';
 import { formatDate } from '../lib/utils';
 import { VerifiedBadge, PremiumBadge } from './UI';
@@ -11,7 +11,7 @@ export default function PollCard({ poll, showDetailedStats = false }) {
   const isLive = poll.meta?.isLive;
   const getPercent = (votes) => (totalVotes > 0 ? (votes / totalVotes) * 100 : 0);
 
-  // Format date safely
+  // Safe date formatting
   let formattedDate = 'Unknown date';
   if (poll.createdAt) {
     const date = poll.createdAt instanceof Date ? poll.createdAt : new Date(poll.createdAt);
@@ -20,7 +20,12 @@ export default function PollCard({ poll, showDetailedStats = false }) {
     }
   }
 
-  // Get poll type badge styling
+  // Detect if any option has media
+  const hasOptionMedia = poll.options?.some(opt => opt.mediaUrl);
+  // Carousel is shown only for comparison/live OR any option with media
+  const useCarousel = (poll.type === 'comparison' || poll.type === 'live') || hasOptionMedia;
+
+  // Type badge styling
   const getTypeBadge = (type) => {
     const types = {
       quick: { label: '⚡ Quick Poll', color: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -34,8 +39,98 @@ export default function PollCard({ poll, showDetailedStats = false }) {
 
   const typeBadge = getTypeBadge(poll.type);
   const hasImages = poll.options?.some(opt => opt.mediaUrl) || poll.questionMedia;
-  const showComparisonStyle = (poll.type === 'comparison' || poll.type === 'live') && poll.options?.some(opt => opt.mediaUrl);
-  const topOptions = poll.options?.slice(0, showComparisonStyle ? 2 : 3) || [];
+
+  // For carousel, we show all options horizontally
+  const renderOptions = () => {
+    if (poll.type === 'rating') {
+      // Rating poll – show stars (simplified)
+      const avg = poll.averageRating || 0;
+      return (
+        <div className="flex items-center gap-1">
+          {[1, 2, 3, 4, 5].map(i => (
+            <span key={i} className={`text-lg ${i <= Math.round(avg) ? 'text-amber-500' : 'text-gray-200'}`}>★</span>
+          ))}
+          {totalVotes > 0 && (
+            <span className="text-xs text-gray-500 ml-2">({avg.toFixed(1)})</span>
+          )}
+        </div>
+      );
+    }
+
+    if (useCarousel) {
+      // Horizontal scrollable carousel
+      return (
+        <div className="relative">
+          <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            {poll.options.map((opt) => {
+              const pct = getPercent(opt.votes || 0);
+              return (
+                <div
+                  key={opt.id}
+                  className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition"
+                >
+                  {opt.mediaUrl ? (
+                    <div className="w-full h-28 sm:h-32 overflow-hidden bg-gray-100">
+                      <img
+                        src={opt.mediaUrl}
+                        alt={opt.text}
+                        className="w-full h-full object-cover hover:scale-105 transition duration-300"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full h-28 sm:h-32 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center text-gray-400 text-sm">
+                      No image
+                    </div>
+                  )}
+                  <div className="p-2 text-center">
+                    <p className="text-xs font-medium text-gray-800 line-clamp-2">{opt.text}</p>
+                    {totalVotes > 0 && (
+                      <p className="text-xs font-bold text-primary mt-1">{pct.toFixed(0)}%</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Optional: fade edges on sides for desktop to hint scrollability */}
+          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white to-transparent pointer-events-none md:block hidden" />
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:block hidden" />
+        </div>
+      );
+    } else {
+      // Standard bar display (max 3 options with bars)
+      const topOptions = poll.options?.slice(0, 3) || [];
+      return (
+        <div className="space-y-2">
+          {topOptions.map((opt, idx) => {
+            const percent = getPercent(opt.votes || 0);
+            const isLast = idx === topOptions.length - 1 && poll.options?.length > 3;
+            return (
+              <div key={opt.id} className="relative">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-700 truncate flex-1 mr-2">{opt.text}</span>
+                  {totalVotes > 0 && (
+                    <span className="text-primary font-semibold">{percent.toFixed(0)}%</span>
+                  )}
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-500"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+                {isLast && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    +{poll.options.length - 3} more options
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+  };
 
   return (
     <div className="group bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
@@ -67,8 +162,8 @@ export default function PollCard({ poll, showDetailedStats = false }) {
         </h3>
       </Link>
 
-      {/* Question Image (if any) */}
-      {poll.questionMedia && !showComparisonStyle && (
+      {/* Question Image (if any, and not overshadowed by carousel) */}
+      {poll.questionMedia && !useCarousel && (
         <div className="px-4 mb-3">
           <img
             src={poll.questionMedia.url}
@@ -80,60 +175,7 @@ export default function PollCard({ poll, showDetailedStats = false }) {
 
       {/* Options Display */}
       <div className="px-4 pb-3">
-        {showComparisonStyle ? (
-          // Comparison/Live style with images
-          <div className="grid grid-cols-2 gap-2">
-            {poll.options?.slice(0, 2).map((opt, idx) => {
-              const percent = getPercent(opt.votes || 0);
-              return (
-                <div key={opt.id} className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
-                  {opt.mediaUrl ? (
-                    <img src={opt.mediaUrl} alt={opt.text} className="w-full h-24 sm:h-28 object-cover" />
-                  ) : (
-                    <div className="w-full h-24 sm:h-28 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                      <span className="text-gray-400 text-sm">No image</span>
-                    </div>
-                  )}
-                  <div className="p-2 text-center">
-                    <p className="text-xs sm:text-sm font-medium text-gray-800 truncate">{opt.text}</p>
-                    {totalVotes > 0 && (
-                      <p className="text-xs font-bold text-primary mt-1">{percent.toFixed(0)}%</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          // Standard options with bars
-          <div className="space-y-2">
-            {topOptions.map((opt, idx) => {
-              const percent = getPercent(opt.votes || 0);
-              const isLast = idx === topOptions.length - 1 && poll.options?.length > 3;
-              return (
-                <div key={opt.id} className="relative">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-gray-700 truncate flex-1 mr-2">{opt.text}</span>
-                    {totalVotes > 0 && (
-                      <span className="text-primary font-semibold">{percent.toFixed(0)}%</span>
-                    )}
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-500"
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-                  {isLast && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      +{poll.options.length - 3} more options
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {renderOptions()}
       </div>
 
       {/* Stats Bar */}
@@ -197,7 +239,7 @@ export default function PollCard({ poll, showDetailedStats = false }) {
                 });
               } else {
                 navigator.clipboard.writeText(`${window.location.origin}/poll/${poll.id}`);
-                // You could add a toast notification here
+                // optional toast
               }
             }}
             className="p-1.5 text-gray-400 hover:text-primary transition rounded-full hover:bg-gray-100"

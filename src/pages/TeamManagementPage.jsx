@@ -1,4 +1,4 @@
-// src/pages/TeamManagementPage.jsx
+// src/pages/TeamManagementPage.jsx – Final, access for all members, actions restricted
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,11 +15,11 @@ import {
   serverTimestamp,
   query,
   where,
-  getDocs
+  getDocs,
+  deleteField,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../lib/firebase';
-import { canManageTeam } from '../lib/permissions';
 import { Users, UserPlus, Trash2, Crown, Shield, UserCog, Mail, Check, AlertCircle } from 'lucide-react';
 
 const createInvitationCall = httpsCallable(functions, 'createInvitation');
@@ -49,8 +49,7 @@ const Toast = ({ message, type, onClose }) => (
 
 export default function TeamManagementPage() {
   const { user } = useAuth();
-  const accountContext = useAccount();
-  const { activeAccount, organizations } = accountContext || { activeAccount: null, organizations: [] };
+  const { activeAccount, organizations } = useAccount();
   const navigate = useNavigate();
   const [members, setMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -67,14 +66,13 @@ export default function TeamManagementPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Get current organization ID from active account
   const orgId = activeAccount !== 'personal' ? activeAccount : null;
   const isOwner = orgId ? user?.memberships?.[orgId]?.role === 'owner' : false;
   const isAdmin = orgId ? (user?.memberships?.[orgId]?.role === 'admin' || isOwner) : false;
+  const canEdit = isAdmin || isOwner;
 
-  // Fetch team members from the organization's `team` subcollection
   useEffect(() => {
-    if (!orgId || (!isAdmin && !isOwner)) {
+    if (!orgId) {
       setLoading(false);
       return;
     }
@@ -105,10 +103,10 @@ export default function TeamManagementPage() {
     });
 
     return () => unsubscribe();
-  }, [orgId, user?.uid, isAdmin, isOwner]);
+  }, [orgId, user?.uid]);
 
   const handleInvite = async () => {
-    if (!isAdmin && !isOwner) {
+    if (!canEdit) {
       showToast('Only admins and owners can invite members', 'error');
       return;
     }
@@ -138,7 +136,7 @@ export default function TeamManagementPage() {
   };
 
   const handleRemove = async (member) => {
-    if (!isAdmin && !isOwner) {
+    if (!canEdit) {
       showToast('Only admins and owners can remove members', 'error');
       return;
     }
@@ -150,7 +148,6 @@ export default function TeamManagementPage() {
     setRemovingId(member.id);
     try {
       await deleteDoc(doc(db, 'organizations', orgId, 'team', member.id));
-      // Also remove membership from user document
       const userRef = doc(db, 'users', member.id);
       await updateDoc(userRef, {
         [`memberships.${orgId}`]: deleteField(),
@@ -164,14 +161,13 @@ export default function TeamManagementPage() {
   };
 
   const handleRoleChange = async (memberId, newRole) => {
-    if (!isAdmin && !isOwner) {
+    if (!canEdit) {
       showToast('Only admins and owners can change roles', 'error');
       return;
     }
     setChangingRoleId(memberId);
     try {
       await updateDoc(doc(db, 'organizations', orgId, 'team', memberId), { role: newRole });
-      // Also update membership in user document
       const userRef = doc(db, 'users', memberId);
       await updateDoc(userRef, {
         [`memberships.${orgId}.role`]: newRole,
@@ -191,7 +187,7 @@ export default function TeamManagementPage() {
           <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Users size={32} className="text-gray-400" />
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Sign in to manage team</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Sign in to view team</h2>
           <p className="text-gray-500 mb-6">You need to be logged in to access team management.</p>
           <Link to="/login" className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2 rounded-xl font-semibold hover:bg-primary-dark transition">
             Sign in
@@ -201,15 +197,15 @@ export default function TeamManagementPage() {
     );
   }
 
-  if (!orgId || (!isAdmin && !isOwner)) {
+  if (!orgId) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="text-center max-w-md">
           <div className="w-20 h-20 bg-gradient-to-br from-primary/10 to-secondary/10 rounded-full flex items-center justify-center mx-auto mb-4">
             <Crown size={32} className="text-primary" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Team Management</h2>
-          <p className="text-gray-500 mb-6">You need to be an admin or owner of an organization to manage its team.</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">No Organization Selected</h2>
+          <p className="text-gray-500 mb-6">Please switch to an organization account to view its team.</p>
           <Link to="/dashboard" className="inline-flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
             Go to Dashboard
           </Link>
@@ -229,8 +225,6 @@ export default function TeamManagementPage() {
     );
   }
 
-  const canInvite = isAdmin || isOwner;
-
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6">
       <AnimatePresence>
@@ -238,7 +232,6 @@ export default function TeamManagementPage() {
       </AnimatePresence>
 
       <div className="max-w-5xl mx-auto">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -250,11 +243,12 @@ export default function TeamManagementPage() {
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Team Management</h1>
           </div>
-          <p className="text-gray-500 text-sm pl-14">Manage your team members, assign roles, and control access.</p>
+          <p className="text-gray-500 text-sm pl-14">
+            {canEdit ? 'Manage your team members, assign roles, and control access.' : 'View all members of this organization.'}
+          </p>
         </motion.div>
 
-        {/* Invite Card – only visible to admins/owners */}
-        {canInvite && (
+        {canEdit && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -306,12 +300,11 @@ export default function TeamManagementPage() {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-3">
-              The user must have a PollMeNow account. They'll receive an email notification (test mode – check console).
+              The user must have a PollMeNow account. They'll receive an email invitation.
             </p>
           </motion.div>
         )}
 
-        {/* Team Members List */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -324,7 +317,7 @@ export default function TeamManagementPage() {
               <h2 className="text-lg font-semibold text-gray-900">Team Members</h2>
               <span className="text-sm text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{members.length}</span>
             </div>
-            {!canInvite && (
+            {!canEdit && (
               <span className="text-xs text-gray-500 italic">View only</span>
             )}
           </div>
@@ -335,7 +328,7 @@ export default function TeamManagementPage() {
                 <Users className="w-8 h-8 text-gray-400" />
               </div>
               <p className="text-gray-500 font-medium">No team members yet</p>
-              {canInvite && (
+              {canEdit && (
                 <p className="text-sm text-gray-400">Invite your first member using the form above.</p>
               )}
             </div>
@@ -375,7 +368,7 @@ export default function TeamManagementPage() {
                         <RoleIcon size={12} />
                         <span>{roleConf.label}</span>
                       </div>
-                      {canInvite && !isCurrentUser && !isOwnerMember && (
+                      {canEdit && !isCurrentUser && !isOwnerMember && (
                         <select
                           value={member.role}
                           onChange={(e) => handleRoleChange(member.id, e.target.value)}
@@ -388,7 +381,7 @@ export default function TeamManagementPage() {
                           <option value="admin">Admin</option>
                         </select>
                       )}
-                      {canInvite && !isCurrentUser && !isOwnerMember && (
+                      {canEdit && !isCurrentUser && !isOwnerMember && (
                         <button
                           onClick={() => handleRemove(member)}
                           disabled={removingId === member.id}
@@ -410,7 +403,6 @@ export default function TeamManagementPage() {
           )}
         </motion.div>
 
-        {/* Role description card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

@@ -1,6 +1,6 @@
-// src/pages/CreatePollPage.jsx – Fully responsive, same logic & features + organization context + targeting/anonymous mutual exclusion
+// src/pages/CreatePollPage.jsx – Fully responsive, organization context with correct limits
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccount } from '../contexts/AccountContext';
 import { db, storage } from '../lib/firebase';
@@ -12,7 +12,7 @@ import { generatePollSuggestions, generatePollFromURL, generateAndUploadImage, g
 import { uploadToFirebaseStorage } from '../lib/upload';
 import MediaPicker from '../components/MediaPicker';
 import { TagInput } from '../components/UI';
-import { canCreatePoll } from '../lib/permissions';
+import { canCreatePoll, canSchedulePollInOrg } from '../lib/permissions';
 
 // Basic country list – replace with your full list if needed
 const COUNTRIES = [
@@ -110,7 +110,14 @@ export default function CreatePollPage() {
   const canCreate = canCreatePoll(user, activeAccount, orgId);
   const [permissionError, setPermissionError] = useState(false);
 
-  // Core form state (unchanged)
+   // Scheduling permission
+  const canScheduleOrgPoll = canSchedulePollInOrg(orgRole);
+
+  // Stats for organization (to display correct limits)
+  const [orgStats, setOrgStats] = useState({ pollsThisMonth: 0, tier: 'organization', pollsCreated: 0 });
+  const [loadingOrg, setLoadingOrg] = useState(false);
+
+  // Core form state
   const [question, setQuestion] = useState('');
   const [type, setType] = useState('quick');
   const [visibility, setVisibility] = useState('public');
@@ -144,7 +151,7 @@ export default function CreatePollPage() {
   const [scheduledStart, setScheduledStart] = useState('');
   const [scheduledEnd, setScheduledEnd] = useState('');
 
-  // AI generation modals (unchanged)
+  // AI generation modals
   const [showAIOptionsModal, setShowAIOptionsModal] = useState(false);
   const [aiTempOptionsCount, setAiTempOptionsCount] = useState(4);
   const [showUrlInputModal, setShowUrlInputModal] = useState(false);
@@ -160,9 +167,45 @@ export default function CreatePollPage() {
   const [fetchingDetailedPrompt, setFetchingDetailedPrompt] = useState(false);
   const [detailedPromptCache, setDetailedPromptCache] = useState({});
 
-  const tier = user?.tier || 'free';
-  const canUseTargeting = hasTargeting(tier);
-  const canUseAI = canUseAIPollGeneration(tier);
+  // ========== Fetch organization stats when in organization mode ==========
+  useEffect(() => {
+    if (!isPersonal && orgId) {
+      const fetchOrgStats = async () => {
+        setLoadingOrg(true);
+        try {
+          const orgUserDoc = await getDoc(doc(db, 'users', orgId));
+          if (orgUserDoc.exists()) {
+            const data = orgUserDoc.data();
+            setOrgStats({
+              pollsThisMonth: data.pollsThisMonth || 0,
+              tier: data.tier || 'organization',
+              pollsCreated: data.pollsCreated || 0,
+            });
+          }
+        } catch (err) {
+          console.error('Failed to fetch organization stats:', err);
+        } finally {
+          setLoadingOrg(false);
+        }
+      };
+      fetchOrgStats();
+    } else {
+      // Reset when switching to personal mode
+      setOrgStats({ pollsThisMonth: 0, tier: 'organization', pollsCreated: 0 });
+    }
+  }, [isPersonal, orgId]);
+
+  // Effective tier and usage based on current context
+  const effectiveTier = isPersonal ? (user?.tier || 'free') : orgStats.tier;
+  const effectivePollsThisMonth = isPersonal ? (user?.pollsThisMonth || 0) : orgStats.pollsThisMonth;
+  const monthlyLimit = getMonthlyPollLimit(effectiveTier);
+  const pollsLeft = monthlyLimit === Infinity ? '∞' : Math.max(0, monthlyLimit - effectivePollsThisMonth);
+  const usagePct = monthlyLimit === Infinity ? 10 : Math.min(100, (effectivePollsThisMonth / monthlyLimit) * 100);
+
+  // Feature flags based on effective tier
+  const canUseTargeting = hasTargeting(effectiveTier);
+  const canUseAI = canUseAIPollGeneration(effectiveTier);
+  const maxOpts = getMaxOptions(effectiveTier);
 
   const showToast = (type, msg) => {
     setToast({ type, msg });
@@ -195,7 +238,7 @@ export default function CreatePollPage() {
     }
   }, [isPersonal, canCreate, isEditing]);
 
-  // ========== Prompt editor helpers (unchanged, but use orgId for storage? keep user.uid) ==========
+  // ========== Prompt editor helpers ==========
   const openPromptEditor = async (target) => {
     if (!canUseAI) {
       showToast('error', 'AI image generation requires Premium.');
@@ -311,7 +354,7 @@ export default function CreatePollPage() {
     }
   };
 
-  // Image generation handlers (unchanged)
+  // Image generation handlers
   const handleGenerateQuestionImage = () => {
     if (!canUseAI) { showToast('error', 'AI image generation requires Premium.'); return; }
     if (!question.trim()) { showToast('error', 'Enter a question first.'); return; }
@@ -344,7 +387,6 @@ export default function CreatePollPage() {
       const snap = await getDoc(doc(db, 'polls', editId));
       if (!snap.exists()) return;
       const d = snap.data();
-      // Check ownership: for personal poll, creator.id must match; for org poll, user must be in org
       if (d.context?.type === 'personal' && d.creator?.id !== user.uid) {
         navigate('/dashboard');
         return;
@@ -394,7 +436,6 @@ export default function CreatePollPage() {
     } else setOptions([{ id: '1', text: '' }, { id: '2', text: '' }]);
   };
 
-  const maxOpts = getMaxOptions(tier);
   const addOption = () => {
     if (options.length >= maxOpts) { showToast('error', `Maximum ${maxOpts} options allowed.`); return; }
     setOptions(prev => [...prev, { id: Date.now().toString(), text: '' }]);
@@ -518,8 +559,8 @@ export default function CreatePollPage() {
       showToast('error', 'You do not have permission to create polls in this organization.');
       return;
     }
-    const monthlyLimit = getMonthlyPollLimit(tier);
-    if (!isEditing && (user?.pollsThisMonth || 0) >= monthlyLimit) {
+    // Check monthly limit for new polls using effective stats
+    if (!isEditing && monthlyLimit !== Infinity && effectivePollsThisMonth >= monthlyLimit) {
       showToast('error', 'Monthly poll limit reached. Upgrade for more.');
       return;
     }
@@ -556,7 +597,7 @@ export default function CreatePollPage() {
       const finalCat = category === 'other' ? (customCat.trim() || 'other') : category;
 
       const meta = {
-        isPremium: tier === 'premium' || tier === 'organization',
+        isPremium: effectiveTier === 'premium' || effectiveTier === 'organization',
         isVerified: user.verified || false,
         isLive: type === 'live',
       };
@@ -582,8 +623,8 @@ export default function CreatePollPage() {
           type: user.type || 'individual',
           verified: user.verified || false,
           profileImage: user.profileImage || null,
-          tier: user.tier || 'free',
-          contextType,        // 'personal' or 'organization'
+          tier: effectiveTier,
+          contextType,
           orgId: orgId || null,
           orgRole: orgRole || null,
         },
@@ -605,7 +646,7 @@ export default function CreatePollPage() {
           : { options: optsWithMedia }),
       });
 
-      if (scheduleEnabled && tier === 'premium' && !isEditing) {
+      if (scheduleEnabled && effectiveTier === 'premium' && !isEditing) {
         if (!scheduledStart) { showToast('error', 'Please set a start date/time'); setPublishing(false); return; }
         pollData.status = 'scheduled';
         pollData.scheduledStart = Timestamp.fromDate(new Date(scheduledStart));
@@ -622,12 +663,30 @@ export default function CreatePollPage() {
         navigate(`/poll/${editId}`);
       } else {
         const pollRef = await addDoc(collection(db, 'polls'), pollData);
-        // Always increment monthly usage
+        
+        // Always increment the creator's personal counters (the user who is creating)
         await updateDoc(doc(db, 'users', user.uid), {
           pollsThisMonth: increment(1),
           pollsCreated: increment(1),
           updatedAt: serverTimestamp(),
         });
+        
+        // If the poll belongs to an organization, also increment the organization's counters
+        if (contextType === 'organization' && orgId) {
+          const orgUserRef = doc(db, 'users', orgId);
+          await updateDoc(orgUserRef, {
+            pollsThisMonth: increment(1),
+            pollsCreated: increment(1),
+            updatedAt: serverTimestamp(),
+          });
+          // Update local orgStats to reflect new count without refetch
+          setOrgStats(prev => ({
+            ...prev,
+            pollsThisMonth: prev.pollsThisMonth + 1,
+            pollsCreated: prev.pollsCreated + 1,
+          }));
+        }
+        
         await refreshUser();
         setProgress(100);
         if (visibility === 'private' && accessCode) showToast('success', `Poll published! Access code: ${accessCode}`);
@@ -643,7 +702,7 @@ export default function CreatePollPage() {
     }
   };
 
-  // Helper components for targeting and country picker (unchanged)
+  // Helper components for targeting and country picker
   const renderTargeting = () => {
     if (!canUseTargeting) return null;
     const filteredCountries = COUNTRIES.filter(c => c.name.toLowerCase().includes(countrySearch.toLowerCase()));
@@ -715,7 +774,6 @@ export default function CreatePollPage() {
     </div>
   );
 
-  // If organization context and no permission, show error message
   if (permissionError) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -729,8 +787,6 @@ export default function CreatePollPage() {
     );
   }
 
-  const pollsLeft = getMonthlyPollLimit(tier) - (user.pollsThisMonth || 0);
-  const usagePct = Math.min(100, ((user.pollsThisMonth || 0) / getMonthlyPollLimit(tier)) * 100);
   const showOptions = type !== 'yesno' && (type !== 'rating' || isMultiOptionRating);
   const showOptImg = type === 'comparison' || type === 'live' || (mediaChoice === 'options' && showOptions);
   const showQuestionMedia = mediaChoice === 'question' && !isComparison;
@@ -757,7 +813,7 @@ export default function CreatePollPage() {
           )}
         </div>
 
-        {/* Responsive layout: left column (full width on mobile) + right sidebar (below on mobile) */}
+        {/* Responsive layout */}
         <div className="flex flex-col lg:flex-row gap-5">
           {/* Left column – main form */}
           <div className="flex-1">
@@ -815,7 +871,7 @@ export default function CreatePollPage() {
               <SectionTitle>Poll Type</SectionTitle>
               <div className="grid grid-cols-3 gap-2">
                 {POLL_TYPES.map(pt => {
-                  const allowed = canCreatePollType(tier, pt.value);
+                  const allowed = canCreatePollType(effectiveTier, pt.value);
                   const selected = type === pt.value;
                   return (
                     <button
@@ -975,9 +1031,9 @@ export default function CreatePollPage() {
             </FormCard>
 
             {/* Scheduling (Premium only) */}
-            {tier === 'premium' && !isEditing && (
-              <FormCard>
-                <SectionTitle>⏱️ Scheduling</SectionTitle>
+            {effectiveTier === 'premium' && !isEditing && (isPersonal || canScheduleOrgPoll) && (
+  <FormCard>
+    <SectionTitle>⏱️ Scheduling</SectionTitle>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <p className="text-sm font-semibold text-gray-800 m-0">Schedule for later</p>
@@ -1000,7 +1056,7 @@ export default function CreatePollPage() {
               </FormCard>
             )}
 
-            {/* ===== MOBILE: Show sidebar content (settings, targeting, usage, upgrade) before publish button ===== */}
+            {/* ===== MOBILE: Show sidebar content ===== */}
             <div className="lg:hidden">
               {/* Poll Settings */}
               <FormCard>
@@ -1009,8 +1065,8 @@ export default function CreatePollPage() {
                   <label className="block text-xs font-semibold text-gray-500 mb-1.5">Visibility</label>
                   <select className={inputClass} value={visibility} onChange={e => setVisibility(e.target.value)}>
                     {VISIBILITY_OPTIONS.map(v => (
-                      <option key={v.value} value={v.value} disabled={!canUseVisibility(tier, v.value)}>
-                        {v.label}{!canUseVisibility(tier, v.value) ? ' (Premium)' : ''}
+                      <option key={v.value} value={v.value} disabled={!canUseVisibility(effectiveTier, v.value)}>
+                        {v.label}{!canUseVisibility(effectiveTier, v.value) ? ' (Premium)' : ''}
                       </option>
                     ))}
                   </select>
@@ -1038,24 +1094,24 @@ export default function CreatePollPage() {
               {/* Targeting (if available) */}
               {renderTargeting()}
 
-              {/* Monthly Usage */}
+              {/* Monthly Usage – now context‑aware */}
               <FormCard>
                 <SectionTitle>Monthly Usage</SectionTitle>
                 <div className="flex justify-between text-xs text-gray-500 mb-2">
-                  <span>{user.pollsThisMonth || 0} used</span>
-                  <span>{getMonthlyPollLimit(tier) === Infinity ? '∞' : getMonthlyPollLimit(tier)} total</span>
+                  <span>{effectivePollsThisMonth} used</span>
+                  <span>{monthlyLimit === Infinity ? '∞' : monthlyLimit} total</span>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
                   <div className={`h-full rounded-full ${usagePct >= 90 ? 'bg-red-500' : 'bg-gradient-to-r from-primary to-secondary'}`} style={{ width: `${usagePct}%` }} />
                 </div>
-                <p className={`text-[11px] ${pollsLeft <= 0 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                  {pollsLeft <= 0 ? 'Limit reached — ' : `${pollsLeft} polls remaining · `}
-                  {tier === 'free' && <a href="/upgrade" className="text-primary font-semibold">Upgrade for more</a>}
+                <p className={`text-[11px] ${pollsLeft === '∞' ? 'text-gray-400' : (pollsLeft <= 0 ? 'text-red-500 font-bold' : 'text-gray-400')}`}>
+                  {pollsLeft === '∞' ? 'Unlimited polls' : (pollsLeft <= 0 ? 'Limit reached — ' : `${pollsLeft} polls remaining · `)}
+                  {effectiveTier === 'free' && <a href="/upgrade" className="text-primary font-semibold">Upgrade for more</a>}
                 </p>
               </FormCard>
 
               {/* Premium upsell (free tier only) */}
-              {tier === 'free' && (
+              {effectiveTier === 'free' && (
                 <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-primary/20 rounded-2xl p-4 text-center">
                   <p className="text-2xl">⭐</p>
                   <p className="text-sm font-extrabold text-indigo-800 mt-2 mb-1">Unlock Premium</p>
@@ -1099,8 +1155,8 @@ export default function CreatePollPage() {
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Visibility</label>
                 <select className={inputClass} value={visibility} onChange={e => setVisibility(e.target.value)}>
                   {VISIBILITY_OPTIONS.map(v => (
-                    <option key={v.value} value={v.value} disabled={!canUseVisibility(tier, v.value)}>
-                      {v.label}{!canUseVisibility(tier, v.value) ? ' (Premium)' : ''}
+                    <option key={v.value} value={v.value} disabled={!canUseVisibility(effectiveTier, v.value)}>
+                      {v.label}{!canUseVisibility(effectiveTier, v.value) ? ' (Premium)' : ''}
                     </option>
                   ))}
                 </select>
@@ -1130,19 +1186,19 @@ export default function CreatePollPage() {
             <FormCard>
               <SectionTitle>Monthly Usage</SectionTitle>
               <div className="flex justify-between text-xs text-gray-500 mb-2">
-                <span>{user.pollsThisMonth || 0} used</span>
-                <span>{getMonthlyPollLimit(tier) === Infinity ? '∞' : getMonthlyPollLimit(tier)} total</span>
+                <span>{effectivePollsThisMonth} used</span>
+                <span>{monthlyLimit === Infinity ? '∞' : monthlyLimit} total</span>
               </div>
               <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
                 <div className={`h-full rounded-full ${usagePct >= 90 ? 'bg-red-500' : 'bg-gradient-to-r from-primary to-secondary'}`} style={{ width: `${usagePct}%` }} />
               </div>
-              <p className={`text-[11px] ${pollsLeft <= 0 ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                {pollsLeft <= 0 ? 'Limit reached — ' : `${pollsLeft} polls remaining · `}
-                {tier === 'free' && <a href="/upgrade" className="text-primary font-semibold">Upgrade for more</a>}
+              <p className={`text-[11px] ${pollsLeft === '∞' ? 'text-gray-400' : (pollsLeft <= 0 ? 'text-red-500 font-bold' : 'text-gray-400')}`}>
+                {pollsLeft === '∞' ? 'Unlimited polls' : (pollsLeft <= 0 ? 'Limit reached — ' : `${pollsLeft} polls remaining · `)}
+                {effectiveTier === 'free' && <a href="/upgrade" className="text-primary font-semibold">Upgrade for more</a>}
               </p>
             </FormCard>
 
-            {tier === 'free' && (
+            {effectiveTier === 'free' && (
               <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-primary/20 rounded-2xl p-4 text-center">
                 <p className="text-2xl">⭐</p>
                 <p className="text-sm font-extrabold text-indigo-800 mt-2 mb-1">Unlock Premium</p>

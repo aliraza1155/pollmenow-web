@@ -33,18 +33,20 @@ export function AuthProvider({ children }) {
             pollsThisMonth: 0,
             phone: null,
             location: { country: null, city: null },
-            memberships: {},           // ← organization memberships
-            activeAccount: 'personal', // ← default active account
+            memberships: {},
+            activeAccount: 'personal',
           };
           await setDoc(userDocRef, defaultUserData);
           userDoc = await getDoc(userDocRef);
         }
         const data = userDoc.data();
+        // ✅ For organization‑type users, force activeAccount to their own uid (org ID)
+        const activeAccount = data.type === 'organization' ? firebaseUser.uid : (data.activeAccount || 'personal');
         setUser({
           uid: firebaseUser.uid,
           ...data,
           memberships: data.memberships || {},
-          activeAccount: data.activeAccount || 'personal',
+          activeAccount,
           createdAt: data.createdAt?.toDate?.() || new Date(),
           updatedAt: data.updatedAt?.toDate?.() || new Date(),
         });
@@ -61,11 +63,12 @@ export function AuthProvider({ children }) {
       const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
       if (userDoc.exists()) {
         const data = userDoc.data();
+        const activeAccount = data.type === 'organization' ? auth.currentUser.uid : (data.activeAccount || 'personal');
         setUser({
           uid: auth.currentUser.uid,
           ...data,
           memberships: data.memberships || {},
-          activeAccount: data.activeAccount || 'personal',
+          activeAccount,
         });
       }
     }

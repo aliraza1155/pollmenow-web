@@ -1,14 +1,16 @@
-// src/pages/PollAnalyticsPage.jsx – Full analytics with Recharts overview + all detailed option-level demographics
+// src/pages/PollAnalyticsPage.jsx – Advanced analytics for organization roles (owner, admin, poll_manager, analyst)
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getPollAnalytics } from '../lib/analytics';
 import { generatePollInsights } from '../lib/ai';
 import { hasPremiumAnalytics } from '../lib/tierUtils';
 import { toDate, formatDate } from '../lib/utils';
+import { canViewAnalytics, canViewAdvancedAnalytics } from '../lib/permissions';
 import html2canvas from 'html2canvas';
 import { saveAs } from 'file-saver';
 import {
@@ -16,7 +18,6 @@ import {
   Tooltip, Legend, ResponsiveContainer, ComposedChart
 } from 'recharts';
 
-// Helper: linear regression for trend line
 const computeRegressionLine = (data, yKey) => {
   const n = data.length;
   if (n < 2) return null;
@@ -37,14 +38,15 @@ const computeRegressionLine = (data, yKey) => {
 export default function PollAnalyticsPage() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { activeAccount } = useAccount();
   const navigate = useNavigate();
   const [poll, setPoll] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [timeRange, setTimeRange] = useState('24h');
   const [generatingInsight, setGeneratingInsight] = useState(false);
   const containerRef = useRef(null);
+  const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
     const fetch = async () => {
@@ -55,11 +57,21 @@ export default function PollAnalyticsPage() {
         return;
       }
       const pollData = pollDoc.data();
-      if (pollData.creator.id !== user?.uid) {
-        alert('You are not the creator of this poll');
+
+      // Permission check: canViewAnalytics covers creator and organization roles
+      if (!canViewAnalytics(user, pollData)) {
+        alert('You do not have permission to view analytics for this poll.');
         navigate('/');
         return;
       }
+
+      // Determine user's role if poll belongs to an organization
+      let role = null;
+      if (pollData.context?.type === 'organization' && user) {
+        role = user.memberships?.[pollData.context.orgId]?.role || null;
+      }
+      setUserRole(role);
+
       setPoll({ id: pollDoc.id, ...pollData });
       const analyticsData = await getPollAnalytics(id, user?.tier, user?.uid);
       setAnalytics(analyticsData);
@@ -75,7 +87,6 @@ export default function PollAnalyticsPage() {
   }, [id, user, navigate]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" /></div>;
-
   if (!poll || !analytics) return <div className="text-center py-20">No analytics data yet.</div>;
 
   const totalVotes = analytics.totalVotes || 0;
@@ -90,19 +101,13 @@ export default function PollAnalyticsPage() {
   // Time series data (last 30 days)
   const votesByDay = analytics.votesByDay || {};
   const days = Object.keys(votesByDay).sort().slice(-30);
-  const timeData = days.map(day => ({
-    date: day.slice(5),
-    votes: votesByDay[day] || 0,
-  }));
+  const timeData = days.map(day => ({ date: day.slice(5), votes: votesByDay[day] || 0 }));
   const timeDataWithTrend = computeRegressionLine(timeData, 'votes');
 
   // Hourly data (last 24h)
   const votesByHour = analytics.votesByHour || {};
   const hours = Object.keys(votesByHour).sort().slice(-24);
-  const hourlyData = hours.map(hour => ({
-    hour: hour.slice(11, 13) + ':00',
-    votes: votesByHour[hour] || 0,
-  }));
+  const hourlyData = hours.map(hour => ({ hour: hour.slice(11, 13) + ':00', votes: votesByHour[hour] || 0 }));
 
   // Option results – using totalVotes from optionDemographics (premium) or fallback
   const optionResults = (poll.options || []).map(opt => {
@@ -128,30 +133,34 @@ export default function PollAnalyticsPage() {
   const ageData = analytics.ageBuckets ? Object.entries(analytics.ageBuckets).map(([k, v]) => ({ age: k, count: v })) : [];
   const countryData = analytics.countryCounts ? Object.entries(analytics.countryCounts).sort((a,b)=>b[1]-a[1]).slice(0,10) : [];
 
-  // Advanced option-level data (for Premium "By Option" tab)
-  const ageBuckets = ['18-24', '25-34', '35-44', '45-54', '55+'];
-  const optionsLabels = (poll.options || []).map(o => o.text);
-  const heatmapData = {};
-  for (const age of ageBuckets) {
-    heatmapData[age] = {};
-    for (const opt of poll.options || []) {
-      const optDemo = analytics.optionDemographics?.[opt.id]?.ageBuckets || {};
-      const bucketVotes = optDemo[age] || 0;
-      const totalAgeVotes = (analytics.ageBuckets?.[age]) || 1;
-      heatmapData[age][opt.text] = (bucketVotes / totalAgeVotes) * 100;
+  // ✅ Advanced access: either premium tier OR user has an allowed role (owner, admin, poll_manager, analyst)
+  const canViewAdvanced = hasPremiumAnalytics(user?.tier) || canViewAdvancedAnalytics(userRole);
+  let ageBuckets = [], optionsLabels = [], heatmapData = {}, genderOptionData = [], topCountryPerOption = [];
+  if (canViewAdvanced) {
+    ageBuckets = ['18-24', '25-34', '35-44', '45-54', '55+'];
+    optionsLabels = (poll.options || []).map(o => o.text);
+    heatmapData = {};
+    for (const age of ageBuckets) {
+      heatmapData[age] = {};
+      for (const opt of poll.options || []) {
+        const optDemo = analytics.optionDemographics?.[opt.id]?.ageBuckets || {};
+        const bucketVotes = optDemo[age] || 0;
+        const totalAgeVotes = (analytics.ageBuckets?.[age]) || 1;
+        heatmapData[age][opt.text] = (bucketVotes / totalAgeVotes) * 100;
+      }
     }
+    genderOptionData = (poll.options || []).map(opt => ({
+      option: opt.text,
+      male: analytics.optionDemographics?.[opt.id]?.genderCounts?.male || 0,
+      female: analytics.optionDemographics?.[opt.id]?.genderCounts?.female || 0,
+      other: analytics.optionDemographics?.[opt.id]?.genderCounts?.other || 0,
+    }));
+    topCountryPerOption = (poll.options || []).map(opt => {
+      const countries = analytics.optionDemographics?.[opt.id]?.countryCounts || {};
+      const top = Object.entries(countries).sort((a, b) => b[1] - a[1])[0];
+      return { option: opt.text, countryCode: top?.[0], percent: top?.[1] };
+    });
   }
-  const genderOptionData = (poll.options || []).map(opt => ({
-    option: opt.text,
-    male: analytics.optionDemographics?.[opt.id]?.genderCounts?.male || 0,
-    female: analytics.optionDemographics?.[opt.id]?.genderCounts?.female || 0,
-    other: analytics.optionDemographics?.[opt.id]?.genderCounts?.other || 0,
-  }));
-  const topCountryPerOption = (poll.options || []).map(opt => {
-    const countries = analytics.optionDemographics?.[opt.id]?.countryCounts || {};
-    const top = Object.entries(countries).sort((a, b) => b[1] - a[1])[0];
-    return { option: opt.text, countryCode: top?.[0], percent: top?.[1] };
-  });
 
   const isPremium = hasPremiumAnalytics(user?.tier);
   const exportPNG = async () => {
@@ -181,6 +190,41 @@ export default function PollAnalyticsPage() {
       setGeneratingInsight(false);
     }
   };
+
+  const renderHeatmap = () => (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm border-collapse">
+        <thead>
+          <tr>
+            <th className="p-2 border bg-gray-50">Age</th>
+            {optionsLabels.map(col => (
+              <th key={col} className="p-2 border bg-gray-50">{col}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {ageBuckets.map(age => (
+            <tr key={age}>
+              <td className="p-2 border font-semibold">{age}</td>
+              {optionsLabels.map(col => {
+                const pct = heatmapData[age]?.[col] || 0;
+                const intensity = Math.min(0.9, pct / 100);
+                return (
+                  <td
+                    key={col}
+                    className="p-2 border text-center"
+                    style={{ backgroundColor: `rgba(108,92,231,${intensity})` }}
+                  >
+                    {pct.toFixed(1)}%
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6">
@@ -216,11 +260,21 @@ export default function PollAnalyticsPage() {
         {/* Tabs */}
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
           <div className="flex overflow-x-auto border-b">
-            {['overview', 'options', 'demographics', 'byOption', 'insights'].map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition ${activeTab === tab ? 'text-primary border-b-2 border-primary' : 'text-gray-500'}`}>
-                {tab === 'overview' ? 'Overview' : tab === 'options' ? 'Results' : tab === 'demographics' ? 'Demographics' : tab === 'byOption' ? 'By Option' : 'AI Insights'}
-              </button>
-            ))}
+            {['overview', 'options', 'demographics', 'byOption', 'insights'].map(tab => {
+              // Hide advanced tabs (demographics, byOption) if user does not have access
+              if ((tab === 'demographics' || tab === 'byOption') && !canViewAdvanced) return null;
+              // Hide insights if not allowed (same condition)
+              if (tab === 'insights' && !canViewAdvanced) return null;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition ${activeTab === tab ? 'text-primary border-b-2 border-primary' : 'text-gray-500'}`}
+                >
+                  {tab === 'overview' ? 'Overview' : tab === 'options' ? 'Results' : tab === 'demographics' ? 'Demographics' : tab === 'byOption' ? 'By Option' : 'AI Insights'}
+                </button>
+              );
+            })}
           </div>
           <div className="p-5">
             {activeTab === 'overview' && (
@@ -281,61 +335,98 @@ export default function PollAnalyticsPage() {
               </div>
             )}
 
-            {activeTab === 'demographics' && (
-              <div>
-                {!isPremium ? (
-                  <div className="text-center py-12 bg-gray-50 rounded-xl">
-                    <p className="text-2xl mb-2">🔒</p>
-                    <p className="font-semibold text-gray-700">Detailed demographics are a Premium feature.</p>
-                    <Link to="/upgrade" className="inline-block mt-4 bg-primary text-white rounded-full px-5 py-2 text-sm font-bold shadow">Upgrade</Link>
-                  </div>
-                ) : (
-                  <div className="space-y-8">
-                    <div><h3 className="font-bold text-gray-800 mb-2">Gender</h3><ResponsiveContainer width="100%" height={250}><BarChart data={genderData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Bar dataKey="value" fill="#6C5CE7" /></BarChart></ResponsiveContainer></div>
-                    <div><h3 className="font-bold text-gray-800 mb-2">Age Groups</h3><ResponsiveContainer width="100%" height={250}><BarChart data={ageData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="age" /><YAxis /><Tooltip /><Bar dataKey="count" fill="#A855F7" /></BarChart></ResponsiveContainer></div>
-                    <div><h3 className="font-bold text-gray-800 mb-2">Top Countries</h3><ResponsiveContainer width="100%" height={300}><BarChart data={countryData.map(([code,count])=>({code,count}))} layout="vertical"><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" /><YAxis type="category" dataKey="code" width={80} /><Tooltip /><Bar dataKey="count" fill="#FF6B6B" /></BarChart></ResponsiveContainer></div>
-                  </div>
-                )}
+            {activeTab === 'demographics' && canViewAdvanced && (
+              <div className="space-y-8">
+                <div><h3 className="font-bold text-gray-800 mb-2">Gender</h3><ResponsiveContainer width="100%" height={250}><BarChart data={genderData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Bar dataKey="value" fill="#6C5CE7" /></BarChart></ResponsiveContainer></div>
+                <div><h3 className="font-bold text-gray-800 mb-2">Age Groups</h3><ResponsiveContainer width="100%" height={250}><BarChart data={ageData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="age" /><YAxis /><Tooltip /><Bar dataKey="count" fill="#A855F7" /></BarChart></ResponsiveContainer></div>
+                <div><h3 className="font-bold text-gray-800 mb-2">Top Countries</h3><ResponsiveContainer width="100%" height={300}><BarChart data={countryData.map(([code,count])=>({code,count}))} layout="vertical"><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" /><YAxis type="category" dataKey="code" width={80} /><Tooltip /><Bar dataKey="count" fill="#FF6B6B" /></BarChart></ResponsiveContainer></div>
               </div>
             )}
 
-            {activeTab === 'byOption' && (
-              <div>
-                {!isPremium ? (
-                  <div className="text-center py-12 bg-gray-50 rounded-xl"><p className="text-2xl mb-2">🔒</p><p className="font-semibold text-gray-700">Option‑level demographics are a Premium feature.</p><Link to="/upgrade" className="inline-block mt-4 bg-primary text-white rounded-full px-5 py-2 text-sm font-bold shadow">Upgrade</Link></div>
-                ) : (
-                  <div className="space-y-6">
-                    {/* Option Summary */}
-                    <div><h4 className="font-semibold text-gray-800 mb-3">Option Summary</h4><div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{(poll.options || []).map(opt => {
-                      const totalOpt = (analytics.optionDemographics?.[opt.id]?.genderCounts?.male || 0)+(analytics.optionDemographics?.[opt.id]?.genderCounts?.female || 0)+(analytics.optionDemographics?.[opt.id]?.genderCounts?.other || 0);
+            {activeTab === 'byOption' && canViewAdvanced && (
+              <div className="space-y-6">
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3">Option Summary</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(poll.options || []).map(opt => {
+                      const totalOpt = (analytics.optionDemographics?.[opt.id]?.genderCounts?.male || 0) +
+                                       (analytics.optionDemographics?.[opt.id]?.genderCounts?.female || 0) +
+                                       (analytics.optionDemographics?.[opt.id]?.genderCounts?.other || 0);
                       const pct = totalVotes ? ((totalOpt / totalVotes) * 100).toFixed(1) : 0;
                       const ageBuck = analytics.optionDemographics?.[opt.id]?.ageBuckets || {};
                       const dominantAge = Object.entries(ageBuck).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
                       const gender = analytics.optionDemographics?.[opt.id]?.genderCounts || {};
                       const dominantGender = Object.entries(gender).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
                       const country = Object.entries(analytics.optionDemographics?.[opt.id]?.countryCounts || {}).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
-                      return (<div key={opt.id} className="bg-gray-50 rounded-xl p-3"><p className="font-bold text-gray-800">{opt.text}</p><p className="text-sm">{totalOpt} votes ({pct}%)</p><p className="text-xs text-primary mt-1">Mostly {dominantAge} {dominantGender} from {country}</p></div>);
-                    })}</div></div>
-
-                    {/* Age Heatmap */}
-                    <div><h4 className="font-semibold text-gray-800 mb-3">Age × Option Heatmap</h4><div className="overflow-x-auto"><table className="min-w-full text-sm border-collapse"><thead><tr><th className="p-2 border bg-gray-50">Age</th>{optionsLabels.map(col=><th key={col} className="p-2 border bg-gray-50">{col}</th>)}</tr></thead><tbody>{ageBuckets.map(age=><tr key={age}><td className="p-2 border font-semibold">{age}</td>{optionsLabels.map(col=>{const pct=heatmapData[age]?.[col]||0;const intensity=Math.min(0.9,pct/100);return <td key={col} className="p-2 border text-center" style={{backgroundColor:`rgba(108,92,231,${intensity})`}}>{pct.toFixed(1)}%</td>})}</tr>)}</tbody></table></div></div>
-
-                    {/* Gender × Option */}
-                    <div><h4 className="font-semibold text-gray-800 mb-3">Gender × Option</h4>{genderOptionData.map(item=>{const total=item.male+item.female+item.other;return(<div key={item.option} className="mb-4"><div className="text-sm font-medium mb-1">{item.option}</div><div className="flex h-6 rounded-full overflow-hidden"><div className="bg-primary flex items-center justify-center text-white text-[10px]" style={{width:`${(item.male/total)*100}%`}}>{item.male>0?`${Math.round((item.male/total)*100)}%`:''}</div><div className="bg-secondary flex items-center justify-center text-white text-[10px]" style={{width:`${(item.female/total)*100}%`}}>{item.female>0?`${Math.round((item.female/total)*100)}%`:''}</div><div className="bg-purple-500 flex items-center justify-center text-white text-[10px]" style={{width:`${(item.other/total)*100}%`}}>{item.other>0?`${Math.round((item.other/total)*100)}%`:''}</div></div></div>);})}</div>
-
-                    {/* Top Country per Option */}
-                    <div><h4 className="font-semibold text-gray-800 mb-3">Top Country per Option</h4><div className="space-y-2">{topCountryPerOption.map(item=><div key={item.option} className="flex justify-between border-b border-gray-100 py-2"><span>{item.option}</span><span className="font-medium">{item.countryCode||'—'} {item.percent?`(${item.percent} votes)`:''}</span></div>)}</div></div>
+                      return (
+                        <div key={opt.id} className="bg-gray-50 rounded-xl p-3">
+                          <p className="font-bold text-gray-800">{opt.text}</p>
+                          <p className="text-sm">{totalOpt} votes ({pct}%)</p>
+                          <p className="text-xs text-primary mt-1">Mostly {dominantAge} {dominantGender} from {country}</p>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3">Age × Option Heatmap</h4>
+                  {renderHeatmap()}
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3">Gender × Option</h4>
+                  {genderOptionData.map(item => {
+                    const total = item.male + item.female + item.other;
+                    return (
+                      <div key={item.option} className="mb-4">
+                        <div className="text-sm font-medium mb-1">{item.option}</div>
+                        <div className="flex h-6 rounded-full overflow-hidden">
+                          <div className="bg-primary flex items-center justify-center text-white text-[10px]" style={{ width: `${(item.male / total) * 100}%` }}>
+                            {item.male > 0 ? `${Math.round((item.male / total) * 100)}%` : ''}
+                          </div>
+                          <div className="bg-secondary flex items-center justify-center text-white text-[10px]" style={{ width: `${(item.female / total) * 100}%` }}>
+                            {item.female > 0 ? `${Math.round((item.female / total) * 100)}%` : ''}
+                          </div>
+                          <div className="bg-purple-500 flex items-center justify-center text-white text-[10px]" style={{ width: `${(item.other / total) * 100}%` }}>
+                            {item.other > 0 ? `${Math.round((item.other / total) * 100)}%` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-gray-800 mb-3">Top Country per Option</h4>
+                  <div className="space-y-2">
+                    {topCountryPerOption.map(item => (
+                      <div key={item.option} className="flex justify-between border-b border-gray-100 py-2">
+                        <span>{item.option}</span>
+                        <span className="font-medium">{item.countryCode || '—'} {item.percent ? `(${item.percent} votes)` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
-            {activeTab === 'insights' && isPremium && (
+            {activeTab === 'insights' && canViewAdvanced && (
               <div>
                 {analytics.aiInsight ? (
-                  <div className="bg-purple-50 rounded-xl p-5"><p className="text-gray-800">{analytics.aiInsight.text}</p><div className="mt-3 border-t border-purple-200 pt-3"><span className="font-semibold">💡 Suggestion:</span> {analytics.aiInsight.suggestion}</div></div>
+                  <div className="bg-purple-50 rounded-xl p-5">
+                    <p className="text-gray-800">{analytics.aiInsight.text}</p>
+                    <div className="mt-3 border-t border-purple-200 pt-3">
+                      <span className="font-semibold">💡 Suggestion:</span> {analytics.aiInsight.suggestion}
+                    </div>
+                  </div>
                 ) : (
-                  <div className="text-center py-8"><p className="text-gray-600 mb-3">Generate AI-powered insights for this poll.</p><button onClick={handleAIInsight} disabled={generatingInsight} className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold shadow">{generatingInsight ? 'Generating...' : 'Generate Insight'}</button></div>
+                  <div className="text-center py-8">
+                    <p className="text-gray-600 mb-3">Generate AI-powered insights for this poll.</p>
+                    <button onClick={handleAIInsight} disabled={generatingInsight} className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold shadow">
+                      {generatingInsight ? 'Generating...' : 'Generate Insight'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}

@@ -1,7 +1,7 @@
 // src/contexts/AccountContext.jsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 const AccountContext = createContext();
@@ -10,49 +10,153 @@ export function AccountProvider({ children }) {
   const { user, refreshUser: refreshAuthUser } = useAuth();
   const [activeAccount, setActiveAccount] = useState(null);
   const [organizations, setOrganizations] = useState([]);
+  const [activeOrganization, setActiveOrganization] = useState(null);
+  const [hasPersonalAccount, setHasPersonalAccount] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const isSwitching = useRef(false);
 
   const loadUserData = async () => {
     if (!user) {
       setActiveAccount(null);
       setOrganizations([]);
+      setActiveOrganization(null);
+      setHasPersonalAccount(false);
+      setLoading(false);
       return;
     }
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    const data = userDoc.data();
-    const memberships = data?.memberships || {};
-    const orgs = Object.entries(memberships).map(([id, membership]) => ({
-      id,
-      name: membership.name,
-      role: membership.role,
-    }));
-    setOrganizations(orgs);
-    let active = data?.activeAccount;
-    if (!active || (active !== 'personal' && !memberships[active])) {
-      active = 'personal';
+
+    if (isSwitching.current) return;
+
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (!userDoc.exists()) {
+        setLoading(false);
+        return;
+      }
+      const data = userDoc.data();
+      const memberships = data?.memberships || {};
+
+      // Build organizations list (only for individual users; organization owners have no other orgs)
+      const orgs = await Promise.all(
+        Object.entries(memberships).map(async ([id, membership]) => {
+          try {
+            const orgDoc = await getDoc(doc(db, 'organizations', id));
+            return {
+              id,
+              name: orgDoc.exists() ? orgDoc.data().name : (membership.name || 'Organization'),
+              role: membership.role,
+            };
+          } catch {
+            return { id, name: membership.name || 'Organization', role: membership.role };
+          }
+        })
+      );
+      setOrganizations(orgs);
+
+      // ✅ Only individuals have a personal account
+      const isIndividual = data?.type === 'individual';
+      setHasPersonalAccount(isIndividual);
+
+      // Active account logic
+      let active = user.activeAccount; // already set by AuthContext
+      // If the user is an organization owner, active should be their uid (not 'personal')
+      if (!isIndividual && (!active || active === 'personal')) {
+        active = user.uid; // fallback to own uid
+      }
+      // Validate: if active is an org but user is no longer a member, fallback to personal (if individual) or first org
+      if (active !== 'personal' && !memberships[active] && active !== user.uid) {
+        active = isIndividual ? 'personal' : (orgs[0]?.id || user.uid);
+      }
+      setActiveAccount(active);
+      await fetchActiveOrganization(active);
+    } catch (err) {
+      console.error('AccountContext loadUserData error:', err);
+    } finally {
+      setLoading(false);
     }
-    setActiveAccount(active);
+  };
+
+  const fetchActiveOrganization = async (accountId) => {
+    if (accountId && accountId !== 'personal') {
+      try {
+        const orgDoc = await getDoc(doc(db, 'organizations', accountId));
+        if (orgDoc.exists()) {
+          setActiveOrganization({ id: accountId, ...orgDoc.data() });
+        } else {
+          setActiveOrganization(null);
+        }
+      } catch {
+        setActiveOrganization(null);
+      }
+    } else {
+      setActiveOrganization(null);
+    }
   };
 
   useEffect(() => {
     loadUserData();
-  }, [user]);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!activeAccount || activeAccount === 'personal') return;
+    const unsubscribe = onSnapshot(
+      doc(db, 'organizations', activeAccount),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setActiveOrganization({ id: activeAccount, ...docSnap.data() });
+          setOrganizations(prev =>
+            prev.map(org =>
+              org.id === activeAccount ? { ...org, name: docSnap.data().name } : org
+            )
+          );
+        }
+      }
+    );
+    return () => unsubscribe();
+  }, [activeAccount]);
 
   const switchAccount = async (accountId) => {
-    if (!user) return;
-    await updateDoc(doc(db, 'users', user.uid), { activeAccount: accountId });
-    await refreshAuthUser();
-    await loadUserData();
+    if (!user || accountId === activeAccount) return;
+    // ❌ Prevent switching to 'personal' if user has no personal account
+    if (accountId === 'personal' && !hasPersonalAccount) {
+      console.warn('Cannot switch to personal account – user is not an individual');
+      return;
+    }
+    isSwitching.current = true;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { activeAccount: accountId });
+      setActiveAccount(accountId);
+      await fetchActiveOrganization(accountId);
+    } catch (err) {
+      console.error('switchAccount error:', err);
+    } finally {
+      isSwitching.current = false;
+    }
   };
 
   const refreshUser = async () => {
-    // First refresh the Auth user (this re-fetches the user document and updates AuthContext)
     await refreshAuthUser();
-    // Then reload local Account state from the fresh user data
+    isSwitching.current = false;
     await loadUserData();
   };
 
+  const refreshActiveOrganization = async () => {
+    if (activeAccount && activeAccount !== 'personal') {
+      await fetchActiveOrganization(activeAccount);
+    }
+  };
+
   return (
-    <AccountContext.Provider value={{ activeAccount, organizations, switchAccount, refreshUser }}>
+    <AccountContext.Provider value={{
+      activeAccount,
+      organizations,
+      activeOrganization,
+      hasPersonalAccount,
+      loading,
+      switchAccount,
+      refreshUser,
+      refreshActiveOrganization,
+    }}>
       {children}
     </AccountContext.Provider>
   );

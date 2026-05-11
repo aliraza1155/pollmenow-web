@@ -1,4 +1,4 @@
-// src/App.jsx
+// src/App.jsx – Fixed team route and removed overly restrictive OrganizationRoute
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -51,13 +51,6 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-const OrganizationRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  if (loading) return <div className="text-center py-20 text-gray-500">Loading...</div>;
-  if (!user || user.type !== 'organization') return <Navigate to="/" replace />;
-  return children;
-};
-
 function AppRoutes() {
   return (
     <AnimatePresence mode="wait">
@@ -94,7 +87,8 @@ function AppRoutes() {
         <Route path="/profile/:id?" element={<ProtectedRoute><PageWrapper><ProfilePage /></PageWrapper></ProtectedRoute>} />
         <Route path="/upgrade" element={<ProtectedRoute><PageWrapper><UpgradePage /></PageWrapper></ProtectedRoute>} />
         <Route path="/poll/analytics/:id" element={<ProtectedRoute><PageWrapper><PollAnalyticsPage /></PageWrapper></ProtectedRoute>} />
-        <Route path="/team" element={<OrganizationRoute><PageWrapper><TeamManagementPage /></PageWrapper></OrganizationRoute>} />
+        {/* Team route – now accessible to any logged-in user; permissions checked inside component */}
+        <Route path="/team" element={<ProtectedRoute><PageWrapper><TeamManagementPage /></PageWrapper></ProtectedRoute>} />
 
         {/* 404 fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,8 +1,9 @@
-// src/pages/PollPage.jsx
+// src/pages/PollPage.jsx – Updated analytics link permission
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccount } from '../contexts/AccountContext';
 import { usePoll } from '../hooks/usePoll';
 import { submitVote, hasUserVoted, getPollVotes } from '../lib/vote';
 import { isFollowing, followUser, unfollowUser } from '../lib/follow';
@@ -10,6 +11,7 @@ import { getPollAnalytics } from '../lib/analytics';
 import { hasPremiumAnalytics } from '../lib/tierUtils';
 import { formatDate } from '../lib/utils';
 import { trackPollView } from '../lib/viewTracker';
+import { canViewAnalytics } from '../lib/permissions';
 import ShareWidget from '../components/ShareWidget';
 
 const TYPE_META = {
@@ -40,6 +42,7 @@ export default function PollPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { poll, loading: pollLoading, error } = usePoll(id);
+  const { activeAccount } = useAccount(); // used for analytics permission
 
   const [selectedOption, setSelectedOption] = useState(null);
   const [hasVoted, setHasVoted] = useState(false);
@@ -117,7 +120,8 @@ export default function PollPage() {
 
   useEffect(() => {
     if (!poll) return;
-    if (user?.uid === poll.creator.id || hasPremiumAnalytics(user?.tier)) {
+    // Show analytics if user is creator OR has permission via canViewAnalytics
+    if (canViewAnalytics(user, poll) || hasPremiumAnalytics(user?.tier)) {
       getPollAnalytics(poll.id, user?.tier || 'free', user?.uid)
         .then(setAnalytics)
         .catch(() => {});
@@ -159,7 +163,6 @@ export default function PollPage() {
       notify('success', 'Your vote has been recorded! 🎉');
     } catch (err) {
       const errorMsg = err.message || '';
-      // Check for targeting or profile‑related messages
       if (errorMsg.includes('Login required')) {
         setShowAuthModal(true);
       } else if (
@@ -254,6 +257,7 @@ export default function PollPage() {
   const votingDisabledBecauseLogin = !user && loginRequiredToVote;
 
   const renderOptions = () => {
+    // ... (same as before, unchanged)
     if (poll.type === 'rating') {
       const scale = poll.scale || { min: 1, max: 5, step: 1 };
       const ratings = [];
@@ -314,11 +318,7 @@ export default function PollPage() {
               <div className={`relative flex flex-col sm:flex-row items-center gap-3 ${hasImg ? 'p-0' : 'p-4'}`}>
                 {hasImg && (
                   <div className="w-full sm:w-40 h-40 sm:h-40 flex-shrink-0 overflow-hidden rounded-t-xl sm:rounded-l-xl sm:rounded-tr-none">
-                    <img
-                      src={opt.mediaUrl}
-                      alt={opt.text}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={opt.mediaUrl} alt={opt.text} className="w-full h-full object-cover" />
                   </div>
                 )}
                 <div className={`flex-1 flex flex-col sm:flex-row sm:items-center justify-between w-full gap-3 ${hasImg ? 'p-4' : ''}`}>
@@ -448,7 +448,8 @@ export default function PollPage() {
                     ) : isFollowingCreator ? '✓ Following' : '+ Follow'}
                   </button>
                 )}
-                {isCreator && (
+                {/* Show Analytics link based on permission */}
+                {canViewAnalytics(user, poll) && (
                   <Link
                     to={`/poll/analytics/${poll.id}`}
                     className="rounded-full px-4 py-1.5 text-xs font-bold border border-primary text-primary hover:bg-primary/5 transition inline-flex items-center gap-1"
@@ -701,7 +702,7 @@ export default function PollPage() {
                   </div>
                 </div>
               </div>
-            ) : !hasPremiumAnalytics(user?.tier) && !isCreator ? (
+            ) : !hasPremiumAnalytics(user?.tier) && !canViewAnalytics(user, poll) ? (
               <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-primary/20 rounded-xl p-4 text-center">
                 <span className="text-2xl">📊</span>
                 <p className="text-sm font-extrabold text-indigo-800 mt-2 mb-1">Advanced Analytics</p>
