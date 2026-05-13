@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Copy, Check, Share2, Link as LinkIcon, MessageCircle, QrCode, X, Mail } from 'lucide-react';
+import { recordShare } from '../lib/shareTracker'; // <-- new import
 
 export default function ShareWidget({ poll, onShare, creator }) {
   const [copied, setCopied] = useState(false);
@@ -28,28 +29,42 @@ export default function ShareWidget({ poll, onShare, creator }) {
     { name: 'Email', icon: Mail, href: `mailto:?subject=${encodeURIComponent(poll.question)}&body=${encodedMessage}`, color: 'bg-gray-600 hover:bg-gray-700' },
   ];
 
-  const copyToClipboard = async () => {
+  // Helper to record share and then call the original action
+  const handleShareAction = async (actionFn) => {
     try {
-      await navigator.clipboard.writeText(poll.accessCode ? `${pollUrl}\nAccess code: ${poll.accessCode}` : pollUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await recordShare(poll.id);
+      await actionFn();
       onShare?.();
     } catch (err) {
-      alert('Failed to copy link');
+      console.error('Share recording failed:', err);
+      // Still attempt the original share action even if recording fails
+      await actionFn();
+      onShare?.();
     }
+  };
+
+  const copyToClipboard = async () => {
+    await navigator.clipboard.writeText(poll.accessCode ? `${pollUrl}\nAccess code: ${poll.accessCode}` : pollUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const shareNative = async () => {
     if (navigator.share) {
-      try {
-        await navigator.share(shareData);
-        onShare?.();
-      } catch (err) {
-        // User cancelled
-      }
+      await navigator.share(shareData);
     } else {
-      copyToClipboard();
+      await copyToClipboard();
     }
+  };
+
+  const copyWithRecord = () => handleShareAction(copyToClipboard);
+  const nativeWithRecord = () => handleShareAction(shareNative);
+
+  const handleSocialShare = (href) => {
+    // Record share then open the social share URL in a new tab
+    recordShare(poll.id).catch(console.error);
+    window.open(href, '_blank', 'noopener,noreferrer');
+    onShare?.();
   };
 
   const creatorData = creator || poll.creator;
@@ -104,7 +119,11 @@ export default function ShareWidget({ poll, onShare, creator }) {
               <p className="text-lg font-mono font-bold text-amber-800 tracking-wider">{poll.accessCode}</p>
             </div>
             <button
-              onClick={() => { navigator.clipboard.writeText(poll.accessCode); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+              onClick={() => {
+                navigator.clipboard.writeText(poll.accessCode);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
               className="text-amber-700 hover:text-amber-900 transition"
             >
               <Copy size={16} />
@@ -116,14 +135,14 @@ export default function ShareWidget({ poll, onShare, creator }) {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={copyToClipboard}
+              onClick={copyWithRecord}
               className="flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl text-sm font-medium transition"
             >
               {copied ? <Check size={16} className="text-green-600" /> : <LinkIcon size={16} />}
               {copied ? 'Copied!' : 'Copy link'}
             </button>
             <button
-              onClick={shareNative}
+              onClick={nativeWithRecord}
               className="flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-secondary text-white py-2.5 rounded-xl text-sm font-medium shadow-sm hover:shadow transition"
             >
               <Share2 size={16} />
@@ -131,19 +150,17 @@ export default function ShareWidget({ poll, onShare, creator }) {
             </button>
           </div>
 
-          {/* Social media icons - using text for Twitter/LinkedIn */}
+          {/* Social media icons - using buttons to record share before opening */}
           <div className="flex justify-center gap-2 pt-2 border-t border-gray-100">
             {shareLinks.map((social) => (
-              <a
+              <button
                 key={social.name}
-                href={social.href}
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={() => handleSocialShare(social.href)}
                 className={`w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105 ${social.color} text-white shadow-sm font-bold`}
                 aria-label={`Share on ${social.name}`}
               >
                 {social.icon ? <social.icon size={16} /> : social.label}
-              </a>
+              </button>
             ))}
             <button
               onClick={() => setShowQR(true)}
@@ -183,7 +200,7 @@ export default function ShareWidget({ poll, onShare, creator }) {
             </div>
             <p className="text-xs text-gray-500 mt-3">Scan to vote on this poll</p>
             <button
-              onClick={copyToClipboard}
+              onClick={copyWithRecord}
               className="mt-4 w-full bg-primary/10 text-primary py-2 rounded-lg text-sm font-medium"
             >
               Copy link instead

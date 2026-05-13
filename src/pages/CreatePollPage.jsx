@@ -534,23 +534,44 @@ export default function CreatePollPage() {
   };
 
   // Validation
-  const validate = () => {
-    if (!question.trim()) { showToast('error', 'Question is required.'); return false; }
-    if (question.length > MAX_TITLE_LENGTH) { showToast('error', `Question too long (max ${MAX_TITLE_LENGTH}).`); return false; }
-    if (type !== 'rating' && type !== 'yesno') {
-      const valid = options.filter(o => o.text.trim());
-      if (valid.length < 2) { showToast('error', 'At least 2 options required.'); return false; }
-    }
-    if (type === 'rating' && !isMultiOptionRating && ratingScale.min >= ratingScale.max) {
+ const validate = () => {
+  if (!question.trim()) { showToast('error', 'Question is required.'); return false; }
+  if (question.length > MAX_TITLE_LENGTH) { showToast('error', `Question too long (max ${MAX_TITLE_LENGTH}).`); return false; }
+
+  // Rating specific validations
+  if (type === 'rating') {
+    if (ratingScale.min >= ratingScale.max) {
       showToast('error', 'Min rating must be less than max.');
       return false;
     }
-    if (type === 'comparison') {
-      const missing = options.some(opt => opt.text.trim() && !optMedia[opt.id]);
-      if (missing) { showToast('error', 'All options must have an image for comparison polls.'); return false; }
+    if (isMultiOptionRating) {
+      const valid = options.filter(o => o.text.trim());
+      if (valid.length < 2) {
+        showToast('error', 'At least 2 items required for rating poll.');
+        return false;
+      }
     }
-    return true;
-  };
+    return true; // rating validation done, skip option validation below
+  }
+
+  // For non-rating poll types: check options (except yesno)
+  if (type !== 'yesno') {
+    const valid = options.filter(o => o.text.trim());
+    if (valid.length < 2) {
+      showToast('error', 'At least 2 options required.');
+      return false;
+    }
+  }
+
+  if (type === 'comparison') {
+    const missing = options.some(opt => opt.text.trim() && !optMedia[opt.id]);
+    if (missing) {
+      showToast('error', 'All options must have an image for comparison polls.');
+      return false;
+    }
+  }
+  return true;
+};
 
   // Publish
   const handlePublish = async () => {
@@ -937,29 +958,136 @@ export default function CreatePollPage() {
             )}
 
             {/* Rating Options */}
+            
             {type === 'rating' && (
-              <FormCard>
-                <div className="flex justify-between items-center mb-2">
-                  <SectionTitle>Rating Options</SectionTitle>
-                  <label className="flex items-center gap-2 text-xs">
-                    <span>Rate multiple items</span>
-                    <input type="checkbox" checked={isMultiOptionRating} onChange={e => { setIsMultiOptionRating(e.target.checked); if (e.target.checked && options.length === 0) setOptions([{ id: '1', text: '' }, { id: '2', text: '' }]); else if (!e.target.checked) setOptions([]); }} />
-                  </label>
-                </div>
-                {!isMultiOptionRating ? (
-                  <div className="grid grid-cols-3 gap-3">
-                    {[{ label: 'Min', key: 'min' }, { label: 'Max', key: 'max' }, { label: 'Step', key: 'step' }].map(f => (
-                      <div key={f.key}>
-                        <label className="block text-[11px] font-semibold text-gray-500 mb-1">{f.label}</label>
-                        <input type="number" className={inputClass} value={ratingScale[f.key]} onChange={e => setRatingScale(prev => ({ ...prev, [f.key]: Math.max(1, parseInt(e.target.value) || 1) }))} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-400">Add options below – each will have its own rating.</p>
+  <FormCard>
+    <div className="flex justify-between items-center mb-3">
+      <SectionTitle>Rating Configuration</SectionTitle>
+      <label className="flex items-center gap-2 text-xs">
+        <span>Rate multiple items</span>
+        <input
+          type="checkbox"
+          checked={isMultiOptionRating}
+          onChange={e => {
+            setIsMultiOptionRating(e.target.checked);
+            if (e.target.checked && options.length === 0) {
+              setOptions([{ id: '1', text: '' }, { id: '2', text: '' }]);
+            } else if (!e.target.checked) {
+              setOptions([]);
+            }
+          }}
+        />
+      </label>
+    </div>
+
+    {/* Always show the rating scale */}
+    <div className="mb-4">
+      <label className="block text-xs font-semibold text-gray-500 mb-2">Rating Scale</label>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Min</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={ratingScale.min}
+            onChange={e => setRatingScale(prev => ({
+              ...prev,
+              min: Math.max(1, parseInt(e.target.value) || 1)
+            }))}
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Max</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={ratingScale.max}
+            onChange={e => setRatingScale(prev => ({
+              ...prev,
+              max: Math.max(prev.min + 1, parseInt(e.target.value) || prev.min + 1)
+            }))}
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Step</label>
+          <input
+            type="number"
+            step="any"
+            className={inputClass}
+            value={ratingScale.step}
+            onChange={e => setRatingScale(prev => ({
+              ...prev,
+              step: Math.max(0.1, parseFloat(e.target.value) || 1)
+            }))}
+          />
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-400 mt-2">
+        Example: 1–5 step 1 → 1,2,3,4,5 &nbsp;|&nbsp; 1–10 step 2 → 1,3,5,7,9
+      </p>
+    </div>
+
+    {/* Items to rate (only when multi‑option is enabled) */}
+    {isMultiOptionRating && (
+      <div>
+        <SectionTitle>Items to Rate</SectionTitle>
+        <div className="space-y-2">
+          {options.map((opt, i) => (
+            <div key={opt.id}>
+              <div className="flex gap-2 items-center">
+                <span className="text-sm font-bold text-gray-400 min-w-[20px]">{i + 1}.</span>
+                <input
+                  className="flex-1 bg-gray-50 border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary"
+                  placeholder={`Item ${i + 1}...`}
+                  value={opt.text}
+                  onChange={e => updateOption(i, e.target.value)}
+                  maxLength={MAX_OPTION_LENGTH}
+                />
+                {options.length > 2 && (
+                  <button
+                    onClick={() => removeOption(i)}
+                    className="w-8 h-8 rounded-lg bg-red-50 border border-red-200 text-red-500 flex items-center justify-center"
+                  >
+                    ✕
+                  </button>
                 )}
-              </FormCard>
-            )}
+              </div>
+              {/* Option image (optional) – only if media is enabled */}
+              {showOptImg && (
+                <div className="mt-2 ml-7">
+                  <p className="text-[11px] text-gray-400 mb-1">Item image (optional)</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <MediaPicker
+                      key={optionImageKeys[opt.id] || 0}
+                      onPicked={url => setOptMedia(prev => ({ ...prev, [opt.id]: url }))}
+                      currentImage={optMedia[opt.id]}
+                    />
+                    {canUseAI && (
+                      <AiImageButton
+                        onGenerate={() => handleGenerateOptionImage(opt.id, opt.text, i, options.length)}
+                        loading={!!generatingImageForOptions[opt.id]}
+                        disabled={!opt.text.trim()}
+                        label="✨ AI"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {options.length < maxOpts && (
+          <button
+            onClick={addOption}
+            className="mt-3 w-full border border-dashed border-primary/30 rounded-lg py-2 text-primary text-sm font-semibold hover:bg-primary/5 transition"
+          >
+            + Add item
+          </button>
+        )}
+      </div>
+    )}
+  </FormCard>
+)}
 
             {/* Options */}
             {showOptions && (

@@ -1,10 +1,12 @@
-// src/components/PollCard.jsx – with option carousel for media-rich polls
+// src/components/PollCard.jsx – with manual scroll buttons and snap carousel
+import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDate } from '../lib/utils';
 import { VerifiedBadge, PremiumBadge } from './UI';
-import { BarChart3, Eye, Share2, Users, Clock, ChevronRight } from 'lucide-react';
+import { BarChart3, Eye, Share2, Users, Clock, ChevronRight, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 
 export default function PollCard({ poll, showDetailedStats = false }) {
+  const scrollContainerRef = useRef(null);
   const totalVotes = poll.totalVotes || 0;
   const totalViews = poll.totalViews || 0;
   const isExpired = poll.endsAt && new Date(poll.endsAt) < new Date();
@@ -20,10 +22,25 @@ export default function PollCard({ poll, showDetailedStats = false }) {
     }
   }
 
-  // Detect if any option has media
+  // Detect if any option has media (image)
   const hasOptionMedia = poll.options?.some(opt => opt.mediaUrl);
-  // Carousel is shown only for comparison/live OR any option with media
+  // Use carousel for comparison/live OR if any option has media
   const useCarousel = (poll.type === 'comparison' || poll.type === 'live') || hasOptionMedia;
+
+  // Determine if we have at least 2 options (otherwise scroll buttons not needed)
+  const optionsCount = poll.options?.length || 0;
+  const showScrollButtons = useCarousel && optionsCount > 1;
+
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  };
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  };
 
   // Type badge styling
   const getTypeBadge = (type) => {
@@ -38,12 +55,9 @@ export default function PollCard({ poll, showDetailedStats = false }) {
   };
 
   const typeBadge = getTypeBadge(poll.type);
-  const hasImages = poll.options?.some(opt => opt.mediaUrl) || poll.questionMedia;
 
-  // For carousel, we show all options horizontally
   const renderOptions = () => {
     if (poll.type === 'rating') {
-      // Rating poll – show stars (simplified)
       const avg = poll.averageRating || 0;
       return (
         <div className="flex items-center gap-1">
@@ -58,16 +72,39 @@ export default function PollCard({ poll, showDetailedStats = false }) {
     }
 
     if (useCarousel) {
-      // Horizontal scrollable carousel
       return (
         <div className="relative">
-          <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+          {/* Scroll buttons */}
+          {showScrollButtons && (
+            <>
+              <button
+                onClick={scrollLeft}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white/80 rounded-full p-1 shadow-md hover:bg-white transition"
+                aria-label="Scroll left"
+              >
+                <ChevronLeft size={20} className="text-gray-600" />
+              </button>
+              <button
+                onClick={scrollRight}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white/80 rounded-full p-1 shadow-md hover:bg-white transition"
+                aria-label="Scroll right"
+              >
+                <ChevronRightIcon size={20} className="text-gray-600" />
+              </button>
+            </>
+          )}
+          {/* Scrollable container */}
+          <div
+            ref={scrollContainerRef}
+            className="flex overflow-x-auto gap-3 pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 snap-x snap-mandatory"
+            style={{ scrollbarWidth: 'thin' }}
+          >
             {poll.options.map((opt) => {
               const pct = getPercent(opt.votes || 0);
               return (
                 <div
                   key={opt.id}
-                  className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition"
+                  className="flex-shrink-0 w-36 sm:w-44 bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition snap-start"
                 >
                   {opt.mediaUrl ? (
                     <div className="w-full h-28 sm:h-32 overflow-hidden bg-gray-100">
@@ -92,9 +129,6 @@ export default function PollCard({ poll, showDetailedStats = false }) {
               );
             })}
           </div>
-          {/* Optional: fade edges on sides for desktop to hint scrollability */}
-          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white to-transparent pointer-events-none md:block hidden" />
-          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:block hidden" />
         </div>
       );
     } else {
@@ -162,7 +196,7 @@ export default function PollCard({ poll, showDetailedStats = false }) {
         </h3>
       </Link>
 
-      {/* Question Image (if any, and not overshadowed by carousel) */}
+      {/* Question Image (only if no option carousel) */}
       {poll.questionMedia && !useCarousel && (
         <div className="px-4 mb-3">
           <img
@@ -239,7 +273,6 @@ export default function PollCard({ poll, showDetailedStats = false }) {
                 });
               } else {
                 navigator.clipboard.writeText(`${window.location.origin}/poll/${poll.id}`);
-                // optional toast
               }
             }}
             className="p-1.5 text-gray-400 hover:text-primary transition rounded-full hover:bg-gray-100"
@@ -250,7 +283,7 @@ export default function PollCard({ poll, showDetailedStats = false }) {
         </div>
       </div>
 
-      {/* PollMeNow Branding */}
+      {/* Branding */}
       <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-center">
         <span className="text-[10px] text-gray-400 flex items-center justify-center gap-1">
           <BarChart3 size={10} />
