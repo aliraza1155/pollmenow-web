@@ -3,12 +3,10 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from 'firebase/auth';
 import { doc, setDoc, getDocs, query, collection, where, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase'; // acceptInvitationCall removed
+import { auth, db } from '../lib/firebase';
 import { detectLocation } from '../lib/location';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { motion } from 'framer-motion';
-
-// Removed acceptInvitationCall – no auto‑accept
 
 const FEATURES = [
   'AI-generated polls in under 10 seconds',
@@ -68,7 +66,7 @@ export default function Register() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const prefilledEmail = searchParams.get('email') || '';
-  const redirect = searchParams.get('redirect') || null; // optional redirect after verification
+  const redirect = searchParams.get('redirect') || null;
 
   const [userType, setUserType] = useState('individual');
   const [email, setEmail] = useState(prefilledEmail);
@@ -140,6 +138,13 @@ export default function Register() {
     return parsed?.isValid() || false;
   };
 
+  // ✅ Age validation: if provided, must be a real number between 13 and 120
+  const validateAge = (ageValue) => {
+    if (!ageValue) return true;
+    const ageNum = parseInt(ageValue, 10);
+    return !isNaN(ageNum) && ageNum >= 13 && ageNum <= 120;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (usernameAvailable !== true) {
@@ -156,6 +161,10 @@ export default function Register() {
     }
     if (userType === 'individual' && !validatePhone(phone)) {
       alert('Please enter a valid phone number with country code (e.g., +1234567890)');
+      return;
+    }
+    if (userType === 'individual' && !validateAge(age)) {
+      alert('Please enter a valid age between 13 and 120 (or leave blank).');
       return;
     }
 
@@ -190,7 +199,7 @@ export default function Register() {
         activeAccount: 'personal',
       };
       if (userType === 'individual') {
-        if (age) userData.age = parseInt(age);
+        if (age) userData.age = parseInt(age, 10);
         if (gender) userData.gender = gender;
       } else {
         userData.organization = { name: orgName, size: null, industry: null, tagline: null, verified: false };
@@ -199,7 +208,6 @@ export default function Register() {
       }
       await setDoc(doc(db, 'users', user.uid), userData);
 
-      // If organization, create organization document and set owner membership
       if (userType === 'organization') {
         const orgRef = doc(db, 'organizations', user.uid);
         await setDoc(orgRef, {
@@ -218,11 +226,7 @@ export default function Register() {
         });
       }
 
-      // No auto‑accept of invitations – user must click the invite link after registration/login
       await sendEmailVerification(user);
-
-      // If there's a redirect parameter, store it for after email verification? Not implemented for simplicity.
-      // The user will need to click the invitation link again (they will, because it's in their email).
       navigate('/verify-email', { state: { email, redirect } });
     } catch (err) {
       let msg = 'Registration failed';
@@ -401,6 +405,9 @@ export default function Register() {
                       type="number"
                       value={age}
                       onChange={(e) => setAge(e.target.value)}
+                      min="13"
+                      max="120"
+                      step="1"
                       className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
                     />
                   </div>

@@ -1,25 +1,20 @@
 // src/lib/location.js
+import { httpsCallable } from 'firebase/functions';
+import { functions } from './firebase';
+
+const getCountryFromIPCallable = httpsCallable(functions, 'getCountryFromIP');
+
 export async function getCountryFromIP() {
   try {
-    // Get IP first
-    const ipRes = await fetch('https://api.ipify.org?format=json');
-    const { ip } = await ipRes.json();
-    // Use ip-api.com which supports CORS
-    const res = await fetch(`https://ip-api.com/json/${ip}`);
-    const data = await res.json();
-    if (data.status === 'success') {
-      return {
-        country: data.country,
-        countryCode: data.countryCode,
-        city: data.city
-      };
-    }
+    const result = await getCountryFromIPCallable();
+    return result.data; // { country, countryCode, city }
   } catch (err) {
-    console.error('IP location error:', err);
+    console.error('Cloud function geolocation failed:', err);
+    return null;
   }
-  return null;
 }
 
+// Keep browser geolocation (GPS) as before – this runs first if user allows
 export async function getBrowserLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
@@ -36,7 +31,7 @@ export async function getBrowserLocation() {
             country: data.address?.country,
             city: data.address?.city,
             lat: latitude,
-            lng: longitude
+            lng: longitude,
           });
         } catch {
           resolve(null);
@@ -48,7 +43,9 @@ export async function getBrowserLocation() {
 }
 
 export async function detectLocation() {
+  // Primary: GPS (user‑allowed)
   const gps = await getBrowserLocation();
   if (gps && gps.country) return gps;
+  // Fallback: IP geolocation via cloud function
   return await getCountryFromIP();
 }

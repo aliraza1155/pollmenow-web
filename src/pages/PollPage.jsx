@@ -1,4 +1,4 @@
-// src/pages/PollPage.jsx – Updated analytics link permission
+// src/pages/PollPage.jsx – Updated with persistent demographics for unauthenticated users
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,6 +13,7 @@ import { formatDate } from '../lib/utils';
 import { trackPollView } from '../lib/viewTracker';
 import { canViewAnalytics } from '../lib/permissions';
 import ShareWidget from '../components/ShareWidget';
+import DemographicsModal from '../components/DemographicsModal';
 
 const TYPE_META = {
   quick: { label: '⚡ Quick Poll', cls: 'bg-amber-50 text-amber-800' },
@@ -42,7 +43,7 @@ export default function PollPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { poll, loading: pollLoading, error } = usePoll(id);
-  const { activeAccount } = useAccount(); // used for analytics permission
+  const { activeAccount } = useAccount();
 
   const [selectedOption, setSelectedOption] = useState(null);
   const [hasVoted, setHasVoted] = useState(false);
@@ -59,6 +60,11 @@ export default function PollPage() {
   const [permissionError, setPermissionError] = useState(false);
   const [voters, setVoters] = useState([]);
   const [signupMessageIndex, setSignupMessageIndex] = useState(0);
+  
+  // Demographics modal state
+  const [showDemographicsModal, setShowDemographicsModal] = useState(false);
+  const [pendingVoteOption, setPendingVoteOption] = useState(null);
+  const [detectedCountry, setDetectedCountry] = useState(null);
 
   const signupMessages = [
     "✨ Sign up to follow your favorite creators!",
@@ -80,6 +86,17 @@ export default function PollPage() {
       return () => clearInterval(interval);
     }
   }, [user, hasVoted]);
+
+  // Detect country for unauthenticated users (to pre‑fill modal)
+  useEffect(() => {
+    if (!user && !detectedCountry) {
+      import('../lib/location').then(({ detectLocation }) => {
+        detectLocation().then(loc => {
+          if (loc?.country) setDetectedCountry(loc.country);
+        }).catch(() => {});
+      });
+    }
+  }, [user, detectedCountry]);
 
   useEffect(() => {
     if (error && (error.includes('permission-denied') || error.includes('Missing or insufficient permissions'))) {
@@ -120,7 +137,6 @@ export default function PollPage() {
 
   useEffect(() => {
     if (!poll) return;
-    // Show analytics if user is creator OR has permission via canViewAnalytics
     if (canViewAnalytics(user, poll) || hasPremiumAnalytics(user?.tier)) {
       getPollAnalytics(poll.id, user?.tier || 'free', user?.uid)
         .then(setAnalytics)
@@ -133,31 +149,17 @@ export default function PollPage() {
     setTimeout(() => setNotification(null), 3500);
   };
 
-  const handleVote = async () => {
-    if (!selectedOption) {
-      notify('error', 'Please select an option first.');
-      return;
-    }
-    if (hasVoted) {
-      notify('error', 'You already voted in this poll.');
-      return;
-    }
-    if (poll.visibility === 'private' && accessCode !== poll.accessCode && !isCreator) {
-      notify('error', 'Invalid access code.');
-      return;
-    }
-    if (poll.visibility === 'friends' && !isFollowingCreator && !isCreator) {
-      notify('error', 'You must follow the creator to vote.');
-      return;
-    }
+  const performVote = async (optionId, demographics = null) => {
     setVoting(true);
     try {
+      const isAnonymous = user ? (voteAnonymously && poll.visibility !== 'private') : true;
       await submitVote(
         poll.id,
-        selectedOption,
+        optionId,
         user?.uid,
-        voteAnonymously && poll.visibility !== 'private',
-        poll.visibility === 'private' ? accessCode : undefined
+        isAnonymous,
+        poll.visibility === 'private' ? accessCode : undefined,
+        demographics
       );
       setHasVoted(true);
       notify('success', 'Your vote has been recorded! 🎉');
@@ -181,6 +183,60 @@ export default function PollPage() {
     } finally {
       setVoting(false);
     }
+  };
+
+  const handleVote = () => {
+    if (!selectedOption) {
+      notify('error', 'Please select an option first.');
+      return;
+    }
+    if (hasVoted) {
+      notify('error', 'You already voted in this poll.');
+      return;
+    }
+    if (poll.visibility === 'private' && accessCode !== poll.accessCode && !isCreator) {
+      notify('error', 'Invalid access code.');
+      return;
+    }
+    if (poll.visibility === 'friends' && !isFollowingCreator && !isCreator) {
+      notify('error', 'You must follow the creator to vote.');
+      return;
+    }
+
+    // Non‑logged‑in user
+    if (!user) {
+      // Check if we already have complete demographics (age + gender)
+      const savedData = localStorage.getItem('pollpoint_demographics_data');
+      if (savedData) {
+        try {
+          const demographics = JSON.parse(savedData);
+          if (demographics.age && demographics.gender) {
+            // Use stored demographics, no modal
+            performVote(selectedOption, demographics);
+            return;
+          }
+        } catch (e) {}
+      }
+      // Otherwise show modal
+      setPendingVoteOption(selectedOption);
+      setShowDemographicsModal(true);
+      return;
+    }
+
+    // Logged‑in user – proceed directly
+    performVote(selectedOption);
+  };
+
+  const handleDemographicsComplete = (demographics) => {
+    if (demographics && demographics.age && demographics.gender) {
+      // Store only if age and gender are provided
+      localStorage.setItem('pollpoint_demographics_data', JSON.stringify(demographics));
+    }
+    if (pendingVoteOption) {
+      performVote(pendingVoteOption, demographics);
+      setPendingVoteOption(null);
+    }
+    setShowDemographicsModal(false);
   };
 
   const handleFollow = async () => {
@@ -257,7 +313,6 @@ export default function PollPage() {
   const votingDisabledBecauseLogin = !user && loginRequiredToVote;
 
   const renderOptions = () => {
-    // ... (same as before, unchanged)
     if (poll.type === 'rating') {
       const scale = poll.scale || { min: 1, max: 5, step: 1 };
       const ratings = [];
@@ -448,7 +503,6 @@ export default function PollPage() {
                     ) : isFollowingCreator ? '✓ Following' : '+ Follow'}
                   </button>
                 )}
-                {/* Show Analytics link based on permission */}
                 {canViewAnalytics(user, poll) && (
                   <Link
                     to={`/poll/analytics/${poll.id}`}
@@ -473,7 +527,8 @@ export default function PollPage() {
               </div>
             )}
 
-            {poll.anonymous && poll.visibility !== 'private' && !hasVoted && (
+            {/* Vote anonymously toggle – only for logged‑in users */}
+            {poll.anonymous && poll.visibility !== 'private' && !hasVoted && user && (
               <label className="flex items-center gap-2 cursor-pointer mb-4">
                 <div
                   onClick={() => setVoteAnonymously(v => !v)}
@@ -540,7 +595,6 @@ export default function PollPage() {
               </div>
             )}
 
-            {/* Post‑vote signup encouragement for non‑logged‑in users */}
             {!user && hasVoted && (
               <div className="mt-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-primary/30 rounded-xl p-4">
                 <div className="flex flex-col md:flex-row items-center gap-4">
@@ -580,7 +634,6 @@ export default function PollPage() {
               </button>
             </div>
 
-            {/* Voter list (only for creator when poll.anonymous === false) */}
             {isCreator && !poll.anonymous && voters.length > 0 && (
               <div className="mt-6 bg-white rounded-xl border border-gray-100 p-4">
                 <h3 className="font-bold text-gray-800 mb-3">Who voted</h3>
@@ -661,7 +714,6 @@ export default function PollPage() {
               </div>
             </div>
 
-            {/* Sidebar signup prompt for non‑logged‑in users who haven't voted */}
             {!user && !hasVoted && (
               <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-primary/20 rounded-xl p-4 text-center">
                 <p className="text-2xl">🌟</p>
@@ -809,6 +861,17 @@ export default function PollPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Demographics modal (only for non-logged-in users) */}
+      <DemographicsModal
+        isOpen={showDemographicsModal}
+        onClose={() => {
+          setShowDemographicsModal(false);
+          setPendingVoteOption(null);
+        }}
+        onComplete={handleDemographicsComplete}
+        detectedCountry={detectedCountry}
+      />
     </div>
   );
 }
