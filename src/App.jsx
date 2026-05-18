@@ -1,6 +1,7 @@
-// src/App.jsx – Fixed team route and removed overly restrictive OrganizationRoute
+// src/App.jsx – with embedded ThemeContext for dark/light mode
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
 import Navbar from './components/Navbar';
@@ -24,7 +25,6 @@ import TeamManagementPage from './pages/TeamManagementPage';
 import UpgradePage from './pages/UpgradePage';
 import NotificationsPage from './pages/NotificationsPage';
 import AcceptInvite from './pages/AcceptInvite';
-// New pages
 import FAQ from './pages/FAQ';
 import Blog from './pages/Blog';
 import StatusPage from './pages/StatusPage';
@@ -33,6 +33,45 @@ import Affiliates from './pages/Affiliates';
 import CookiePolicy from './pages/CookiePolicy';
 import GDPR from './pages/GDPR';
 
+// ─── Theme Context ────────────────────────────────────────────
+export const ThemeContext = createContext({
+  isDark: true,
+  toggle: () => {},
+});
+export const useTheme = () => useContext(ThemeContext);
+
+function ThemeProvider({ children }) {
+  // Default: dark mode ("Creator Dark" design)
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pmn-theme');
+      if (saved !== null) return saved === 'dark';
+    } catch {}
+    return true; // dark by default
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDark) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('pmn-theme', isDark ? 'dark' : 'light');
+    } catch {}
+  }, [isDark]);
+
+  const toggle = () => setIsDark(prev => !prev);
+
+  return (
+    <ThemeContext.Provider value={{ isDark, toggle }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+// ─── Route helpers ────────────────────────────────────────────
 const PageWrapper = ({ children }) => (
   <motion.div
     initial={{ opacity: 0, y: 12 }}
@@ -46,7 +85,7 @@ const PageWrapper = ({ children }) => (
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="text-center py-20 text-gray-500">Loading...</div>;
+  if (loading) return <div className="text-center py-20 text-gray-500 dark:text-gray-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
   return children;
 };
@@ -68,8 +107,6 @@ function AppRoutes() {
         <Route path="/reset-password" element={<PageWrapper><ResetPassword /></PageWrapper>} />
         <Route path="/verify-email" element={<PageWrapper><VerifyEmail /></PageWrapper>} />
         <Route path="/accept-invite" element={<PageWrapper><AcceptInvite /></PageWrapper>} />
-
-        {/* New info pages */}
         <Route path="/faq" element={<PageWrapper><FAQ /></PageWrapper>} />
         <Route path="/blog" element={<PageWrapper><Blog /></PageWrapper>} />
         <Route path="/status" element={<PageWrapper><StatusPage /></PageWrapper>} />
@@ -78,16 +115,13 @@ function AppRoutes() {
         <Route path="/cookies" element={<PageWrapper><CookiePolicy /></PageWrapper>} />
         <Route path="/gdpr" element={<PageWrapper><GDPR /></PageWrapper>} />
 
-        {/* Notifications page (protected) */}
-        <Route path="/notifications" element={<ProtectedRoute><PageWrapper><NotificationsPage /></PageWrapper></ProtectedRoute>} />
-
         {/* Protected routes */}
+        <Route path="/notifications" element={<ProtectedRoute><PageWrapper><NotificationsPage /></PageWrapper></ProtectedRoute>} />
         <Route path="/create" element={<ProtectedRoute><PageWrapper><CreatePollPage /></PageWrapper></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><PageWrapper><DashboardPage /></PageWrapper></ProtectedRoute>} />
         <Route path="/profile/:id?" element={<ProtectedRoute><PageWrapper><ProfilePage /></PageWrapper></ProtectedRoute>} />
         <Route path="/upgrade" element={<ProtectedRoute><PageWrapper><UpgradePage /></PageWrapper></ProtectedRoute>} />
         <Route path="/poll/analytics/:id" element={<ProtectedRoute><PageWrapper><PollAnalyticsPage /></PageWrapper></ProtectedRoute>} />
-        {/* Team route – now accessible to any logged-in user; permissions checked inside component */}
         <Route path="/team" element={<ProtectedRoute><PageWrapper><TeamManagementPage /></PageWrapper></ProtectedRoute>} />
 
         {/* 404 fallback */}
@@ -99,16 +133,18 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AccountProvider>
-        <div className="min-h-screen flex flex-col">
-          <Navbar />
-          <main className="flex-grow">
-            <AppRoutes />
-          </main>
-          <Footer />
-        </div>
-      </AccountProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AccountProvider>
+          <div className="min-h-screen flex flex-col bg-[var(--pmn-bg)] text-[var(--pmn-text)] transition-colors duration-200">
+            <Navbar />
+            <main className="flex-grow">
+              <AppRoutes />
+            </main>
+            <Footer />
+          </div>
+        </AccountProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
