@@ -328,22 +328,52 @@ export default function ExplorePage() {
       const now  = Timestamp.now();
       let q;
       switch (section) {
-        case 'trending': q = query(base, where('visibility','==','public'), orderBy('totalVotes','desc'), limit(20)); break;
-        case 'live':     q = query(base, where('visibility','==','public'), where('meta.isLive','==',true), where('endsAt','>',now), orderBy('endsAt','asc'), limit(15)); break;
-        case 'premium':  q = query(base, where('visibility','==','public'), where('meta.isPremium','==',true), orderBy('createdAt','desc'), limit(15)); break;
+        case 'trending':
+          q = query(base,
+            where('visibility', '==', 'public'),
+            where('showInPublicFeed', '==', true),
+            orderBy('totalVotes', 'desc'),
+            limit(20));
+          break;
+        case 'live':
+          q = query(base,
+            where('visibility', '==', 'public'),
+            where('showInPublicFeed', '==', true),
+            where('meta.isLive', '==', true),
+            where('endsAt', '>', now),
+            orderBy('endsAt', 'asc'),
+            limit(15));
+          break;
+        case 'premium':
+          q = query(base,
+            where('visibility', '==', 'public'),
+            where('showInPublicFeed', '==', true),
+            where('meta.isPremium', '==', true),
+            orderBy('createdAt', 'desc'),
+            limit(15));
+          break;
         case 'friends': {
           if (!user) { setPolls(p => ({ ...p, friends: [] })); return; }
           const ids = await getFollowing(user.uid);
           if (!ids.length) { setPolls(p => ({ ...p, friends: [] })); return; }
-          q = query(base, where('visibility','in',['public','friends']), where('creator.id','in',ids.slice(0,10)), orderBy('createdAt','desc'), limit(15));
+          q = query(base,
+            where('visibility', 'in', ['public', 'friends']),
+            where('creator.id', 'in', ids.slice(0, 10)),
+            orderBy('createdAt', 'desc'),
+            limit(15));
           break;
         }
         case 'for_you': {
           if (!user) { setPolls(p => ({ ...p, for_you: [] })); return; }
-          q = query(base, where('visibility','==','public'), orderBy('score24h','desc'), limit(15));
+          q = query(base,
+            where('visibility', '==', 'public'),
+            where('showInPublicFeed', '==', true),
+            orderBy('score24h', 'desc'),
+            limit(15));
           break;
         }
-        default: return;
+        default:
+          return;
       }
       const snap = await getDocs(q);
       let results = snap.docs.map(processDoc);

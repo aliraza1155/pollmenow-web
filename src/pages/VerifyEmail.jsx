@@ -1,4 +1,4 @@
-// src/pages/VerifyEmail.jsx
+// src/pages/VerifyEmail.jsx – dark/light mode aware
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -8,17 +8,15 @@ import { doc, updateDoc } from 'firebase/firestore';
 
 export default function VerifyEmail() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const email = location.state?.email || auth.currentUser?.email || '';
-  const [loading, setLoading] = useState(false);
+  const navigate  = useNavigate();
+  const email     = location.state?.email || auth.currentUser?.email || '';
+  const [loading,  setLoading]  = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     let interval;
-    if (cooldown > 0) {
-      interval = setInterval(() => setCooldown(c => c - 1), 1000);
-    }
+    if (cooldown > 0) interval = setInterval(() => setCooldown(c => c - 1), 1000);
     return () => clearInterval(interval);
   }, [cooldown]);
 
@@ -29,11 +27,8 @@ export default function VerifyEmail() {
       await sendEmailVerification(auth.currentUser);
       setCooldown(60);
       alert('Verification email resent. Please check your inbox.');
-    } catch (err) {
-      alert('Failed to resend verification email');
-    } finally {
-      setLoading(false);
-    }
+    } catch { alert('Failed to resend verification email'); }
+    finally { setLoading(false); }
   };
 
   const handleCheckVerification = async () => {
@@ -48,11 +43,8 @@ export default function VerifyEmail() {
       } else {
         alert('Email not verified yet. Please check your inbox.');
       }
-    } catch (err) {
-      alert('Failed to check verification status');
-    } finally {
-      setChecking(false);
-    }
+    } catch { alert('Failed to check verification status'); }
+    finally { setChecking(false); }
   };
 
   const handleLogout = async () => {
@@ -60,61 +52,69 @@ export default function VerifyEmail() {
     navigate('/login');
   };
 
+  const btnBase = 'w-full font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 transition';
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#08091a] px-4 py-12">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         className="max-w-md w-full"
       >
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+        <div className="bg-white dark:bg-[#0f1120] rounded-2xl shadow-sm border border-gray-100 dark:border-white/8 p-6 sm:p-8">
           <div className="text-center">
+            {/* Icon */}
             <div className="w-20 h-20 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-md">
               <span className="text-4xl">📧</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Verify your email</h1>
-            <p className="text-gray-600 text-sm mb-6">
-              We've sent a verification link to <strong className="text-primary">{email}</strong>.
+
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-[#f0f0ff] mb-2">
+              Verify your email
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mb-6 leading-relaxed">
+              We've sent a verification link to{' '}
+              <strong className="text-primary">{email}</strong>.
               <br />
               Please click the link in the email to activate your account.
             </p>
 
             <div className="space-y-3">
+              {/* Check verification */}
               <button
                 onClick={handleCheckVerification}
                 disabled={checking}
-                className="w-full bg-gradient-to-r from-primary to-secondary text-white font-bold py-2.5 rounded-xl shadow-md hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className={`${btnBase} bg-gradient-to-r from-primary to-secondary text-white shadow-md hover:shadow-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                {checking ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Checking...
-                  </>
-                ) : (
-                  'I have verified'
-                )}
+                {checking
+                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Checking…</>
+                  : 'I have verified'
+                }
               </button>
 
+              {/* Resend */}
               <button
                 onClick={handleResend}
                 disabled={loading || cooldown > 0}
-                className="w-full bg-gray-100 text-gray-700 font-semibold py-2.5 rounded-xl border border-gray-200 hover:bg-gray-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`${btnBase} bg-gray-100 dark:bg-white/8 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/12 hover:bg-gray-200 dark:hover:bg-white/12 disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                {cooldown > 0
-                  ? `Resend in ${cooldown}s`
-                  : loading
-                  ? 'Sending...'
-                  : 'Resend email'}
+                {cooldown > 0 ? `Resend in ${cooldown}s` : loading ? 'Sending…' : 'Resend email'}
               </button>
 
+              {/* Use different email */}
               <button
                 onClick={handleLogout}
-                className="text-sm text-gray-500 hover:text-primary transition mt-2"
+                className="text-sm text-gray-500 dark:text-gray-400 hover:text-primary dark:hover:text-primary transition mt-2 w-full"
               >
                 Use a different email
               </button>
             </div>
+
+            {/* Help text */}
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-6 leading-relaxed">
+              Didn't receive it? Check your spam folder, or{' '}
+              <Link to="/contact" className="text-primary hover:underline">contact support</Link>.
+            </p>
           </div>
         </div>
       </motion.div>

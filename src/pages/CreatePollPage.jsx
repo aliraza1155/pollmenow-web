@@ -157,6 +157,9 @@ export default function CreatePollPage() {
   const [scheduledStart,    setScheduledStart]    = useState('');
   const [scheduledEnd,      setScheduledEnd]      = useState('');
 
+  // ✅ NEW: Show in public feed (default true)
+  const [showInPublicFeed, setShowInPublicFeed] = useState(true);
+
   // AI modal state
   const [showAIOptionsModal,  setShowAIOptionsModal]  = useState(false);
   const [aiTempOptionsCount,  setAiTempOptionsCount]  = useState(4);
@@ -236,6 +239,8 @@ export default function CreatePollPage() {
         setTargeting({ enabled:true, ageRange:d.meta.targetDemographics.ageRange||[18,65], genders:d.meta.targetDemographics.genders||[], countries:d.meta.targetDemographics.locations||[] });
       }
       if (d.type==='rating' && d.options?.length>0) setIsMultiOptionRating(true);
+      // ✅ Load existing showInPublicFeed (default true for old polls)
+      setShowInPublicFeed(d.showInPublicFeed !== undefined ? d.showInPublicFeed : true);
       setIsEditing(true);
     }).catch(console.error);
   }, [editId, user, navigate, canUseTargeting]);
@@ -382,6 +387,8 @@ export default function CreatePollPage() {
         endsAt, totalVotes:isEditing?undefined:0, totalViews:isEditing?undefined:0,
         accessCode:accessCode||null, questionMedia:qMediaUrl?{url:qMediaUrl,type:'image'}:null, meta,
         allowedDomains:domainRestr.enabled&&user.type==='organization' ? domainRestr.domains.split(',').map(d=>d.trim()).filter(Boolean) : null,
+        // ✅ Add showInPublicFeed (false for private polls, otherwise state value)
+        showInPublicFeed: visibility === 'private' ? false : showInPublicFeed,
         ...(type==='rating' ? { scale:ratingScale, options:isMultiOptionRating?optsWithMedia:[], isMultiOptionRating } : { options:optsWithMedia }),
       });
 
@@ -427,7 +434,7 @@ export default function CreatePollPage() {
             <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">Target specific audience</p>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">Show this poll only to selected demographics</p>
           </div>
-          <Toggle value={targeting.enabled} onChange={v=>setTargeting(p=>({...p,enabled:v}))} disabled={anonymous&&!targeting.enabled} disabledReason={anonymous?'Turn off anonymous voting first':''} />
+          <Toggle value={targeting.enabled} onChange={v=>setTargeting(p=>({...p,enabled:v}))} disabled={anonymous&&!targeting.enabled} disabledReason={anonymous?'Turn off anonymous voting first':''}/>
         </div>
         {targeting.enabled && (
           <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/8 space-y-4">
@@ -496,13 +503,26 @@ export default function CreatePollPage() {
             {DURATION_OPTIONS.map(o=><option key={o.label} value={o.value??''}>{o.label}</option>)}
           </select>
         </div>
-        <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-white/8">
-          <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">Anonymous voting</p>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">Hide voter identities</p>
+        {/* ✅ Anonymous toggle – hidden for private polls */}
+        {visibility !== 'private' && (
+          <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-white/8">
+            <div>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">Anonymous voting</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">Hide voter identities</p>
+            </div>
+            <Toggle value={anonymous} onChange={v=>setAnonymous(v)} disabled={targeting.enabled} disabledReason={targeting.enabled?'Disabled with targeting':''}/>
           </div>
-          <Toggle value={anonymous&&visibility!=='private'} onChange={v=>setAnonymous(v)} disabled={targeting.enabled} disabledReason={targeting.enabled?'Disabled with targeting':''}/>
-        </div>
+        )}
+        {/* ✅ Show in public feed – only for public and friends polls (not private) */}
+        {visibility !== 'private' && (
+          <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-white/8">
+            <div>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 m-0">Show in public feed</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">Appear in Explore and search results</p>
+            </div>
+            <Toggle value={showInPublicFeed} onChange={setShowInPublicFeed} disabled={false} />
+          </div>
+        )}
       </FormCard>
 
       {renderTargeting()}
@@ -816,7 +836,7 @@ export default function CreatePollPage() {
         </div>
       </div>
 
-      {/* ── Modals ── */}
+      {/* ── Modals (unchanged) ── */}
       {showAIOptionsModal&&(
         <Modal onClose={()=>setShowAIOptionsModal(false)}>
           <h3 className="text-xl font-extrabold text-center mb-4 text-gray-900 dark:text-[#f0f0ff]">AI Poll Generation</h3>
