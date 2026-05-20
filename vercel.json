@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/poll/:path*",
-      "destination": "https://us-central1-project-b935d05e-0482-4182-816.cloudfunctions.net/ogPoll/poll/:path*"
+      "source": "/poll/(.*)",
+      "destination": "https://us-central1-project-b935d05e-0482-4182-816.cloudfunctions.net/ogPoll/poll/$1"
     },
     {
       "source": "/(.*)",
